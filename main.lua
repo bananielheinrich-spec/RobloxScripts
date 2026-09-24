@@ -348,7 +348,7 @@ AlertSub.Parent = AlertBanner
 local function TriggerEggAlertGUI(EggName, Rarity, Luck)
 	if Settings.AlertSoundEnabled then
 		local Sound = Instance.new("Sound")
-		Sound.SoundId = "rbxassetid://4590662766" -- Premium Notification Sound
+		Sound.SoundId = "rbxassetid://138718776377217" -- Premium Notification Sound
 		Sound.Volume = 1
 		Sound.Parent = SoundService
 		Sound:Play()
