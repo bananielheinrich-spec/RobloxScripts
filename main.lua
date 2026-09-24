@@ -1,7 +1,7 @@
 --[[
 	WARNING: Heads up! This script has not been verified by ScriptBlox. Use at your own risk!
 ]]
---// RIDE A PET - ULTRA HUB V7 (SERVER HOP + AUTO RE-EXECUTE + THEMES)
+--// RIDE A PET - ULTRA HUB V8 (SPEED SLIDERS + AUTO TP TOGGLE)
 --// Put in StarterPlayer > StarterPlayerScripts or run in Executor
 
 local Players = game:GetService("Players")
@@ -29,7 +29,7 @@ local Themes = {
 		SidebarBg = Color3.fromRGB(15, 18, 28),
 		TopbarBg = Color3.fromRGB(18, 22, 34),
 		Accent = Color3.fromRGB(0, 130, 255),
-		CardBg = Color3.fromRGB(18, 22, 34),
+		CardBg = Color3.fromRGB(25, 30, 45),
 		Stroke = Color3.fromRGB(0, 200, 255)
 	},
 	["Cyberpunk Purple"] = {
@@ -37,7 +37,7 @@ local Themes = {
 		SidebarBg = Color3.fromRGB(22, 12, 35),
 		TopbarBg = Color3.fromRGB(30, 15, 48),
 		Accent = Color3.fromRGB(180, 0, 255),
-		CardBg = Color3.fromRGB(26, 14, 42),
+		CardBg = Color3.fromRGB(35, 20, 55),
 		Stroke = Color3.fromRGB(220, 0, 255)
 	},
 	["Emerald Green"] = {
@@ -45,7 +45,7 @@ local Themes = {
 		SidebarBg = Color3.fromRGB(12, 28, 20),
 		TopbarBg = Color3.fromRGB(15, 36, 25),
 		Accent = Color3.fromRGB(0, 200, 120),
-		CardBg = Color3.fromRGB(14, 32, 22),
+		CardBg = Color3.fromRGB(20, 42, 30),
 		Stroke = Color3.fromRGB(0, 255, 150)
 	},
 	["Dark Minimal"] = {
@@ -53,7 +53,7 @@ local Themes = {
 		SidebarBg = Color3.fromRGB(20, 20, 20),
 		TopbarBg = Color3.fromRGB(26, 26, 26),
 		Accent = Color3.fromRGB(180, 180, 180),
-		CardBg = Color3.fromRGB(22, 22, 22),
+		CardBg = Color3.fromRGB(35, 35, 35),
 		Stroke = Color3.fromRGB(100, 100, 100)
 	}
 }
@@ -101,13 +101,14 @@ local RarityColors = {
 -- SETTINGS & CONFIG
 --==================================================
 
-local SettingsFile = "RideAPet_HubSettings_V7.json"
+local SettingsFile = "RideAPet_HubSettings_V8.json"
 
 local Settings = {
 	ESPEnabled = true,
 	RadarEnabled = true,
 	FlyEnabled = false,
 	AutoClaimEnabled = false,
+	AutoTPToBase = false,
 	WalkSpeed = 16,
 	FlySpeed = 60,
 	CurrentTheme = "Midnight Blue",
@@ -146,6 +147,8 @@ LoadSettings()
 local EggESP = {}
 local NeedsTPListUpdate = false
 local FilterButtons = {}
+local UI_Toggles = {}
+local UI_SliderFills = {}
 
 --==================================================
 -- AUTO RE-EXECUTE & SERVER HOP SYSTEM
@@ -187,15 +190,6 @@ end
 --==================================================
 -- UI TWEEN ANIMATION HELPERS
 --==================================================
-
-local function CreateHoverEffect(Button, DefaultColor, HoverColor)
-	Button.MouseEnter:Connect(function()
-		TweenService:Create(Button, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = HoverColor}):Play()
-	end)
-	Button.MouseLeave:Connect(function()
-		TweenService:Create(Button, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = DefaultColor}):Play()
-	end)
-end
 
 local function CreateClickBounce(Button)
 	Button.MouseButton1Down:Connect(function()
@@ -412,7 +406,7 @@ end)
 --==================================================
 
 local GUI = Instance.new("ScreenGui")
-GUI.Name = "RideAPetUltraV7"
+GUI.Name = "RideAPetUltraV8"
 GUI.ResetOnSpawn = false
 GUI.Parent = Player:WaitForChild("PlayerGui")
 
@@ -437,7 +431,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, -90, 1, 0)
 Title.Position = UDim2.fromOffset(20, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "🔮 RIDE A PET • ULTRA HUB V7"
+Title.Text = "🔮 RIDE A PET • ULTRA HUB V8"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.TextSize = 13
 Title.Font = Enum.Font.GothamBold
@@ -508,6 +502,17 @@ local function ApplyTheme(ThemeName)
 			TweenService:Create(p.btn, TweenInfo.new(0.3), {BackgroundColor3 = Theme.CardBg, TextColor3 = Color3.fromRGB(170, 180, 200)}):Play()
 		end
 	end
+	
+	-- Update Toggles
+	for _, toggle in pairs(UI_Toggles) do
+		local IsOn = Settings[toggle.Key]
+		TweenService:Create(toggle.Btn, TweenInfo.new(0.3), {BackgroundColor3 = IsOn and Theme.Accent or Theme.CardBg}):Play()
+	end
+	
+	-- Update Sliders
+	for _, fill in pairs(UI_SliderFills) do
+		fill.BackgroundColor3 = Theme.Accent
+	end
 end
 
 local function CreateTab(Name, Icon)
@@ -521,10 +526,14 @@ local function CreateTab(Name, Icon)
 	Instance.new("UICorner", TabBtn).CornerRadius = UDim.new(0, 8)
 	CreateClickBounce(TabBtn)
 
-	local Page = Instance.new("Frame")
+	-- Updated Page to ScrollingFrame so content never gets cut off!
+	local Page = Instance.new("ScrollingFrame")
 	Page.Size = UDim2.new(1, -24, 1, -24)
 	Page.Position = UDim2.fromOffset(12, 12)
 	Page.BackgroundTransparency = 1
+	Page.BorderSizePixel = 0
+	Page.ScrollBarThickness = 4
+	Page.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	Page.Visible = false
 	Page.Parent = Container
 
@@ -549,7 +558,7 @@ ActiveTabBtn = Pages["Dashboard"].btn
 Pages["Dashboard"].page.Visible = true
 
 --==================================================
--- DASHBOARD CONTROLS
+-- DASHBOARD CONTROLS (TOGGLES & SLIDERS)
 --==================================================
 
 local MainLayout = Instance.new("UIListLayout")
@@ -558,9 +567,11 @@ MainLayout.Parent = MainTab
 
 local function CreateToggle(Parent, Text, SettingKey, Callback)
 	local DefaultState = Settings[SettingKey]
+	local Theme = Themes[Settings.CurrentTheme] or Themes["Midnight Blue"]
+	
 	local Btn = Instance.new("TextButton")
-	Btn.Size = UDim2.new(1, 0, 0, 38)
-	Btn.BackgroundColor3 = DefaultState and Color3.fromRGB(0, 180, 100) or Color3.fromRGB(25, 30, 45)
+	Btn.Size = UDim2.new(1, -8, 0, 38)
+	Btn.BackgroundColor3 = DefaultState and Theme.Accent or Theme.CardBg
 	Btn.Text = "  " .. Text .. "  ➔  " .. (DefaultState and "ON" or "OFF")
 	Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
 	Btn.TextSize = 12
@@ -569,29 +580,110 @@ local function CreateToggle(Parent, Text, SettingKey, Callback)
 	Btn.Parent = Parent
 	Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 8)
 	CreateClickBounce(Btn)
+	
+	table.insert(UI_Toggles, {Btn = Btn, Key = SettingKey})
 
 	Btn.MouseButton1Click:Connect(function()
 		Settings[SettingKey] = not Settings[SettingKey]
 		local State = Settings[SettingKey]
 		Btn.Text = "  " .. Text .. "  ➔  " .. (State and "ON" or "OFF")
-		TweenService:Create(Btn, TweenInfo.new(0.3), {BackgroundColor3 = State and Color3.fromRGB(0, 180, 100) or Color3.fromRGB(25, 30, 45)}):Play()
+		local CurTheme = Themes[Settings.CurrentTheme] or Themes["Midnight Blue"]
+		TweenService:Create(Btn, TweenInfo.new(0.3), {BackgroundColor3 = State and CurTheme.Accent or CurTheme.CardBg}):Play()
 		SaveSettings()
 		Callback(State)
 	end)
 	return Btn
 end
 
+local function CreateSlider(Parent, Text, SettingKey, Min, Max, Callback)
+	local Frame = Instance.new("Frame")
+	Frame.Size = UDim2.new(1, -8, 0, 48)
+	Frame.BackgroundColor3 = Color3.fromRGB(25, 30, 45) -- Standard Card Background
+	Frame.Parent = Parent
+	Instance.new("UICorner", Frame).CornerRadius = UDim.new(0, 8)
+
+	local Label = Instance.new("TextLabel")
+	Label.Size = UDim2.new(1, -20, 0, 20)
+	Label.Position = UDim2.fromOffset(10, 6)
+	Label.BackgroundTransparency = 1
+	Label.Text = Text .. " : " .. tostring(Settings[SettingKey])
+	Label.TextColor3 = Color3.fromRGB(255, 255, 255)
+	Label.TextSize = 11
+	Label.Font = Enum.Font.GothamBold
+	Label.TextXAlignment = Enum.TextXAlignment.Left
+	Label.Parent = Frame
+
+	local SliderBg = Instance.new("Frame")
+	SliderBg.Size = UDim2.new(1, -20, 0, 6)
+	SliderBg.Position = UDim2.fromOffset(10, 32)
+	SliderBg.BackgroundColor3 = Color3.fromRGB(15, 18, 28)
+	SliderBg.Parent = Frame
+	Instance.new("UICorner", SliderBg).CornerRadius = UDim.new(1, 0)
+
+	local Fill = Instance.new("Frame")
+	Fill.Size = UDim2.fromScale(math.clamp((Settings[SettingKey] - Min) / (Max - Min), 0, 1), 1)
+	Fill.BackgroundColor3 = Color3.fromRGB(0, 130, 255) -- Init color
+	Fill.Parent = SliderBg
+	Instance.new("UICorner", Fill).CornerRadius = UDim.new(1, 0)
+	table.insert(UI_SliderFills, Fill)
+
+	local Button = Instance.new("TextButton")
+	Button.Size = UDim2.fromScale(1, 1)
+	Button.BackgroundTransparency = 1
+	Button.Text = ""
+	Button.Parent = SliderBg
+
+	local Dragging = false
+	local function Update(Input)
+		local Pct = math.clamp((Input.Position.X - SliderBg.AbsolutePosition.X) / SliderBg.AbsoluteSize.X, 0, 1)
+		Fill.Size = UDim2.fromScale(Pct, 1)
+		local Value = math.floor(Min + (Max - Min) * Pct)
+		Settings[SettingKey] = Value
+		Label.Text = Text .. " : " .. tostring(Value)
+		SaveSettings()
+		if Callback then Callback(Value) end
+	end
+
+	Button.InputBegan:Connect(function(Input)
+		if Input.UserInputType == Enum.UserInputType.MouseButton1 then
+			Dragging = true
+			Update(Input)
+		end
+	end)
+	UserInputService.InputChanged:Connect(function(Input)
+		if Dragging and Input.UserInputType == Enum.UserInputType.MouseMovement then
+			Update(Input)
+		end
+	end)
+	UserInputService.InputEnded:Connect(function(Input)
+		if Input.UserInputType == Enum.UserInputType.MouseButton1 then
+			Dragging = false
+		end
+	end)
+end
+
+-- Toggles
 CreateToggle(MainTab, "ESP Tracker", "ESPEnabled", function(val)
 	for _, Info in pairs(EggESP) do Info.gui.Enabled = val end
 end)
 CreateToggle(MainTab, "Radar Display", "RadarEnabled", function(val) end)
 CreateToggle(MainTab, "Auto Claim & Grid Place", "AutoClaimEnabled", function(val) end)
+CreateToggle(MainTab, "🏠 Auto TP zur Base (Nach Claim)", "AutoTPToBase", function(val) end)
 CreateToggle(MainTab, "Fly Mode", "FlyEnabled", function(val)
 	if val then StartFly() else StopFly() end
 end)
 
+-- Sliders
+CreateSlider(MainTab, "🚶 Walk Speed", "WalkSpeed", 16, 250, function(val)
+	local Hum = GetHumanoid()
+	if Hum and not Settings.FlyEnabled then Hum.WalkSpeed = val end
+end)
+
+CreateSlider(MainTab, "✈️ Fly Speed", "FlySpeed", 20, 300, function(val) end)
+
+-- Action Buttons
 local BaseBtn = Instance.new("TextButton")
-BaseBtn.Size = UDim2.new(1, 0, 0, 38)
+BaseBtn.Size = UDim2.new(1, -8, 0, 38)
 BaseBtn.BackgroundColor3 = Color3.fromRGB(140, 40, 255)
 BaseBtn.Text = "🏠 Teleport To Baseplate Spot"
 BaseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -603,7 +695,7 @@ CreateClickBounce(BaseBtn)
 BaseBtn.MouseButton1Click:Connect(TeleportToBase)
 
 local RearrangeBtn = Instance.new("TextButton")
-RearrangeBtn.Size = UDim2.new(1, 0, 0, 38)
+RearrangeBtn.Size = UDim2.new(1, -8, 0, 38)
 RearrangeBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 200)
 RearrangeBtn.Text = "🧹 Eggs ordnen (Grid Rearrange)"
 RearrangeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -615,7 +707,7 @@ CreateClickBounce(RearrangeBtn)
 RearrangeBtn.MouseButton1Click:Connect(RearrangePlotEggs)
 
 local StatusCard = Instance.new("Frame")
-StatusCard.Size = UDim2.new(1, 0, 0, 90)
+StatusCard.Size = UDim2.new(1, -8, 0, 90)
 StatusCard.BackgroundColor3 = Color3.fromRGB(18, 22, 34)
 StatusCard.Parent = MainTab
 Instance.new("UICorner", StatusCard).CornerRadius = UDim.new(0, 10)
@@ -634,7 +726,7 @@ StatusText.Text = "🧭 RADAR & STATUS\nScanning for nearby eggs..."
 StatusText.Parent = StatusCard
 
 --==================================================
--- SETTINGS & SERVER TAB (NEW)
+-- SETTINGS & SERVER TAB
 --==================================================
 
 local SettingsLayout = Instance.new("UIListLayout")
@@ -652,7 +744,7 @@ ServerHeader.TextXAlignment = Enum.TextXAlignment.Left
 ServerHeader.Parent = SettingsTab
 
 local HopBtn = Instance.new("TextButton")
-HopBtn.Size = UDim2.new(1, 0, 0, 38)
+HopBtn.Size = UDim2.new(1, -8, 0, 38)
 HopBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 200)
 HopBtn.Text = "🚀 Server Hop (Low Players)"
 HopBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -664,7 +756,7 @@ CreateClickBounce(HopBtn)
 HopBtn.MouseButton1Click:Connect(ServerHopLowPlayers)
 
 local RejoinBtn = Instance.new("TextButton")
-RejoinBtn.Size = UDim2.new(1, 0, 0, 38)
+RejoinBtn.Size = UDim2.new(1, -8, 0, 38)
 RejoinBtn.BackgroundColor3 = Color3.fromRGB(180, 80, 0)
 RejoinBtn.Text = "🔄 Rejoin Same Server"
 RejoinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -687,7 +779,7 @@ ThemeHeader.Parent = SettingsTab
 
 for ThemeName, _ in pairs(Themes) do
 	local ThemeBtn = Instance.new("TextButton")
-	ThemeBtn.Size = UDim2.new(1, 0, 0, 34)
+	ThemeBtn.Size = UDim2.new(1, -8, 0, 34)
 	ThemeBtn.BackgroundColor3 = Color3.fromRGB(25, 30, 45)
 	ThemeBtn.Text = "  🎨 " .. ThemeName
 	ThemeBtn.TextColor3 = Color3.fromRGB(220, 225, 240)
@@ -704,11 +796,11 @@ for ThemeName, _ in pairs(Themes) do
 end
 
 --==================================================
--- FILTER TAB
+-- FILTER TAB & TELEPORT TAB 
 --==================================================
 
 local BulkFrame = Instance.new("Frame")
-BulkFrame.Size = UDim2.new(1, 0, 0, 35)
+BulkFrame.Size = UDim2.new(1, -8, 0, 35)
 BulkFrame.BackgroundTransparency = 1
 BulkFrame.Parent = FilterTab
 
@@ -755,14 +847,15 @@ table.sort(SortedFilterList, function(a, b) return a.luck < b.luck end)
 
 local function RefreshFilterButton(Btn, Name, Rarity)
 	local Active = Settings.AllowedEggs[Name]
-	TweenService:Create(Btn, TweenInfo.new(0.3), {BackgroundColor3 = Active and Color3.fromRGB(0, 100, 60) or Color3.fromRGB(22, 26, 40)}):Play()
+	local CurTheme = Themes[Settings.CurrentTheme] or Themes["Midnight Blue"]
+	TweenService:Create(Btn, TweenInfo.new(0.3), {BackgroundColor3 = Active and CurTheme.Accent or Color3.fromRGB(22, 26, 40)}):Play()
 	Btn.Text = "  " .. (Active and "✓ " or "✕ ") .. Name .. " [" .. Rarity .. "]"
 end
 
 for i, EggData in ipairs(SortedFilterList) do
 	local Name = EggData.name
 	local Btn = Instance.new("TextButton")
-	Btn.Size = UDim2.new(1, -10, 0, 36)
+	Btn.Size = UDim2.new(1, -16, 0, 36)
 	Btn.TextColor3 = RarityColors[EggData.rarity] or Color3.fromRGB(255, 255, 255)
 	Btn.TextSize = 11
 	Btn.Font = Enum.Font.GothamSemibold
@@ -798,10 +891,6 @@ DeselectAllBtn.MouseButton1Click:Connect(function()
 	SaveSettings()
 end)
 
---==================================================
--- TELEPORT TAB
---==================================================
-
 local TPScroll = Instance.new("ScrollingFrame")
 TPScroll.Size = UDim2.new(1, 0, 1, 0)
 TPScroll.BackgroundTransparency = 1
@@ -833,7 +922,7 @@ local function UpdateTPList()
 
 	for i, EggData in ipairs(SortedEggs) do
 		local Item = Instance.new("TextButton")
-		Item.Size = UDim2.new(1, -10, 0, 36)
+		Item.Size = UDim2.new(1, -16, 0, 36)
 		Item.BackgroundColor3 = Color3.fromRGB(22, 26, 40)
 		Item.Text = "  🚀 Teleport To " .. EggData.Name .. " [" .. EggData.Rarity .. "]"
 		Item.TextColor3 = RarityColors[EggData.Rarity] or Color3.new(1, 1, 1)
@@ -959,15 +1048,16 @@ task.spawn(function()
 						ClaimEgg(NearestEgg)
 						task.wait(0.15)
 
-						local GridSpot = GetNextBaseplateSpot()
-						if GridSpot then
-							TeleportTo(GridSpot)
-							task.wait(0.3)
-						else
-							PressKey2()
-							task.wait(0.1)
-							PressKey2()
-							task.wait(0.3)
+						-- Überprüfe den neuen Auto TP Schalter!
+						if Settings.AutoTPToBase then
+							local GridSpot = GetNextBaseplateSpot()
+							if GridSpot then
+								TeleportTo(GridSpot)
+								task.wait(0.3)
+							else
+								TeleportToBase()
+								task.wait(0.3)
+							end
 						end
 					end
 				end
@@ -1075,4 +1165,4 @@ Player.CharacterAdded:Connect(function()
 	if Settings.FlyEnabled then StartFly() end
 end)
 
-print("Ride A Pet Ultra Hub V7 Loaded (Grid Rearrange Button Active)!")
+print("Ride A Pet Ultra Hub V8 Loaded (Speed Sliders & Auto TP Control Active)!")
