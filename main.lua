@@ -73,17 +73,24 @@ local Eggs = {
 	["Flower Egg"] = {luck = 750, rarity = "Epic"},
 	["Slime Egg"] = {luck = 1000, rarity = "Epic"},
 	["Ice Egg"] = {luck = 3000, rarity = "Epic"},
+	["Asteroid Egg"] = {luck = 5000, rarity = "Epic"},
 	["Glass Egg"] = {luck = 10000, rarity = "Legendary"},
 	["Golden Egg"] = {luck = 30000, rarity = "Legendary"},
+	["Diamond Egg"] = {luck = 50000, rarity = "Legendary"},
 	["Crystal Egg"] = {luck = 150000, rarity = "Mythic"},
-	["Skull Egg"] = {luck = 250000, rarity = "Mythic"},
+	["Giant Egg"] = {luck = 250000, rarity = "Mythic"},
+	["Skull Egg"] = {luck = 400000, rarity = "Mythic"},
 	["Dominus Egg"] = {luck = 700000, rarity = "Mythic"},
 	["Flaming Egg"] = {luck = 1000000, rarity = "Mythic"},
 	["Sinister Egg"] = {luck = 3000000, rarity = "Mythic"},
-	["Soul Egg"] = {luck = 7000000, rarity = "Mythic"},
+	["Dragon Egg"] = {luck = 5000000, rarity = "Mythic"},
+	["Devil Fruit Egg"] = {luck = 8000000, rarity = "Mythic"},
+	["Soul Egg"] = {luck = 12000000, rarity = "Mythic"},
+	["Admin Egg"] = {luck = 50000000, rarity = "Mythic"},
 	["Aurora Egg"] = {luck = 300000000, rarity = "Divine"},
 	["Galaxy Egg"] = {luck = 1500000000, rarity = "Divine"},
-	["Black Hole Egg"] = {luck = 100000000000, rarity = "Etheral"},
+	["Solaris Egg"] = {luck = 5000000000, rarity = "Divine"},
+	["Blackhole Egg"] = {luck = 100000000000, rarity = "Etheral"},
 	["Cherub Egg"] = {luck = 1000000000000, rarity = "Etheral"},
 }
 
@@ -112,7 +119,8 @@ local Settings = {
 	WalkSpeed = 16,
 	FlySpeed = 60,
 	CurrentTheme = "Midnight Blue",
-	AllowedEggs = {}
+	AllowedEggs = {},
+	NotifyEnabled = true
 }
 
 local GridSpacing = 6
@@ -394,8 +402,89 @@ local function ScanEggs()
 	end
 end
 
+--==================================================
+-- EGG SPAWN NOTIFICATION SYSTEM
+--==================================================
+
+local NotifyGui = Instance.new("ScreenGui")
+NotifyGui.Name = "EggSpawnNotifications"
+NotifyGui.ResetOnSpawn = false
+NotifyGui.Parent = Player:WaitForChild("PlayerGui")
+
+local NotifyContainer = Instance.new("Frame")
+NotifyContainer.Size = UDim2.new(0, 280, 0, 0)
+NotifyContainer.Position = UDim2.new(1, -300, 0, 60)
+NotifyContainer.BackgroundTransparency = 1
+NotifyContainer.AutomaticSize = Enum.AutomaticSize.Y
+NotifyContainer.Parent = NotifyGui
+
+local NotifyLayout = Instance.new("UIListLayout")
+NotifyLayout.Padding = UDim.new(0, 6)
+NotifyLayout.SortOrder = Enum.SortOrder.LayoutOrder
+NotifyLayout.Parent = NotifyContainer
+
+local function ShowNotification(title, body, color)
+	if not Settings.NotifyEnabled then return end
+
+	local Toast = Instance.new("Frame")
+	Toast.Size = UDim2.new(1, 0, 0, 0)
+	Toast.BackgroundColor3 = Color3.fromRGB(15, 17, 25)
+	Toast.BackgroundTransparency = 0.1
+	Toast.Parent = NotifyContainer
+	Instance.new("UICorner", Toast).CornerRadius = UDim.new(0, 10)
+
+	local Stroke = Instance.new("UIStroke")
+	Stroke.Color = color or Color3.fromRGB(0, 130, 255)
+	Stroke.Thickness = 1.5
+	Stroke.Parent = Toast
+
+	local TitleLabel = Instance.new("TextLabel")
+	TitleLabel.Size = UDim2.new(1, -16, 0, 22)
+	TitleLabel.Position = UDim2.fromOffset(8, 6)
+	TitleLabel.BackgroundTransparency = 1
+	TitleLabel.Text = title
+	TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	TitleLabel.TextSize = 13
+	TitleLabel.Font = Enum.Font.GothamBold
+	TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+	TitleLabel.Parent = Toast
+
+	local BodyLabel = Instance.new("TextLabel")
+	BodyLabel.Size = UDim2.new(1, -16, 1, -30)
+	BodyLabel.Position = UDim2.fromOffset(8, 26)
+	BodyLabel.BackgroundTransparency = 1
+	BodyLabel.Text = body
+	BodyLabel.TextColor3 = color or Color3.fromRGB(0, 200, 255)
+	BodyLabel.TextSize = 11
+	BodyLabel.Font = Enum.Font.GothamMedium
+	BodyLabel.TextWrapped = true
+	BodyLabel.TextXAlignment = Enum.TextXAlignment.Left
+	BodyLabel.TextYAlignment = Enum.TextYAlignment.Top
+	BodyLabel.Parent = Toast
+
+	-- Animate in
+	TweenService:Create(Toast, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(1, 0, 0, 64)}):Play()
+
+	-- Animate out after 4 seconds
+	task.delay(4, function()
+		if Toast.Parent then
+			TweenService:Create(Toast, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.In), {Size = UDim2.new(1, 0, 0, 0)}):Play()
+			task.wait(0.35)
+			Toast:Destroy()
+		end
+	end)
+end
+
 workspace.DescendantAdded:Connect(function(Object)
-	if IsEgg(Object) then task.spawn(function() CreateESP(Object) end) end
+	if IsEgg(Object) then
+		task.spawn(function()
+			CreateESP(Object)
+			local Data = Eggs[Object.Name]
+			if Data then
+				ShowNotification("🥚 " .. Object.Name .. " spawned!", Data.rarity .. " • Luck: " .. FormatNumber(Data.luck), RarityColors[Data.rarity])
+			end
+		end)
+	end
 end)
 workspace.DescendantRemoving:Connect(function(Object)
 	if EggESP[Object] then RemoveESP(Object) end
@@ -502,13 +591,13 @@ local function ApplyTheme(ThemeName)
 			TweenService:Create(p.btn, TweenInfo.new(0.3), {BackgroundColor3 = Theme.CardBg, TextColor3 = Color3.fromRGB(170, 180, 200)}):Play()
 		end
 	end
-	
+
 	-- Update Toggles
 	for _, toggle in pairs(UI_Toggles) do
 		local IsOn = Settings[toggle.Key]
 		TweenService:Create(toggle.Btn, TweenInfo.new(0.3), {BackgroundColor3 = IsOn and Theme.Accent or Theme.CardBg}):Play()
 	end
-	
+
 	-- Update Sliders
 	for _, fill in pairs(UI_SliderFills) do
 		fill.BackgroundColor3 = Theme.Accent
@@ -568,7 +657,7 @@ MainLayout.Parent = MainTab
 local function CreateToggle(Parent, Text, SettingKey, Callback)
 	local DefaultState = Settings[SettingKey]
 	local Theme = Themes[Settings.CurrentTheme] or Themes["Midnight Blue"]
-	
+
 	local Btn = Instance.new("TextButton")
 	Btn.Size = UDim2.new(1, -8, 0, 38)
 	Btn.BackgroundColor3 = DefaultState and Theme.Accent or Theme.CardBg
@@ -580,7 +669,7 @@ local function CreateToggle(Parent, Text, SettingKey, Callback)
 	Btn.Parent = Parent
 	Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 8)
 	CreateClickBounce(Btn)
-	
+
 	table.insert(UI_Toggles, {Btn = Btn, Key = SettingKey})
 
 	Btn.MouseButton1Click:Connect(function()
@@ -666,6 +755,7 @@ end
 CreateToggle(MainTab, "ESP Tracker", "ESPEnabled", function(val)
 	for _, Info in pairs(EggESP) do Info.gui.Enabled = val end
 end)
+CreateToggle(MainTab, "🔔 Egg Spawn Notifications", "NotifyEnabled", function(val) end)
 CreateToggle(MainTab, "Radar Display", "RadarEnabled", function(val) end)
 CreateToggle(MainTab, "Auto Claim & Grid Place", "AutoClaimEnabled", function(val) end)
 CreateToggle(MainTab, "🏠 Auto TP zur Base (Nach Claim)", "AutoTPToBase", function(val) end)
