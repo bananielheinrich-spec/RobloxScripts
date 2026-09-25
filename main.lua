@@ -105,6 +105,42 @@ local RarityColors = {
 }
 
 --==================================================
+-- EGG IMAGE DATABASE (actual textures from game assets)
+--==================================================
+
+local EggImages = {
+	["White Egg"] = "rbxassetid://125038257015442",
+	["Brown Egg"] = "rbxassetid://112468794619740",
+	["Cracked Egg"] = "rbxassetid://114193947640513",
+	["Easter Egg"] = "rbxassetid://117359829225239",
+	["Stone Egg"] = "rbxassetid://79058788270843",
+	["Leaf Egg"] = "rbxassetid://120429977049854",
+	["Mushroom Egg"] = "rbxassetid://96481268142716",
+	["Flower Egg"] = "rbxassetid://110454294010876",
+	["Slime Egg"] = "rbxassetid://85370733217796",
+	["Ice Egg"] = "rbxassetid://91452074178973",
+	["Asteroid Egg"] = "rbxassetid://115067675032185",
+	["Glass Egg"] = "", -- No texture (solid glass material)
+	["Golden Egg"] = "rbxassetid://91745471271627",
+	["Diamond Egg"] = "rbxassetid://101061954214117",
+	["Crystal Egg"] = "rbxassetid://96591557012606",
+	["Giant Egg"] = "rbxassetid://82122268428375",
+	["Skull Egg"] = "rbxassetid://133763014063788",
+	["Dominus Egg"] = "rbxassetid://96517858714236",
+	["Flaming Egg"] = "rbxassetid://855109219",
+	["Sinister Egg"] = "rbxassetid://100010318153363",
+	["Dragon Egg"] = "rbxassetid://99395219574570",
+	["Devil Fruit Egg"] = "rbxassetid://74540048396159",
+	["Soul Egg"] = "rbxassetid://113516441036388",
+	["Admin Egg"] = "rbxassetid://90780216228766",
+	["Aurora Egg"] = "rbxassetid://77285302950274",
+	["Galaxy Egg"] = "rbxassetid://100174338199842",
+	["Solaris Egg"] = "rbxassetid://82445068315176",
+	["Blackhole Egg"] = "", -- No texture (solid dark material)
+	["Cherub Egg"] = "rbxassetid://94168267204117",
+}
+
+--==================================================
 -- SETTINGS & CONFIG
 --==================================================
 
@@ -121,7 +157,13 @@ local Settings = {
 	CurrentTheme = "Midnight Blue",
 	AllowedEggs = {},
 	NotifyEggs = {},
-	NotifyEnabled = true
+	NotifyEnabled = true,
+	-- Performance Settings
+	ScanInterval = 0.5,
+	ESPMaxDistance = 600,
+	NotifyDuration = 4,
+	LowQualityMode = false,
+	DisableParticles = false,
 }
 
 local GridSpacing = 6
@@ -450,26 +492,42 @@ NotifyLayout.Padding = UDim.new(0, 6)
 NotifyLayout.SortOrder = Enum.SortOrder.LayoutOrder
 NotifyLayout.Parent = NotifyContainer
 
-local function ShowNotification(title, body, color)
+local function ShowNotification(eggName, body, color)
 	if not Settings.NotifyEnabled then return end
 
 	local Toast = Instance.new("Frame")
 	Toast.Size = UDim2.new(1, 0, 0, 0)
 	Toast.BackgroundColor3 = Color3.fromRGB(15, 17, 25)
-	Toast.BackgroundTransparency = 0.1
+	Toast.BackgroundTransparency = 0.05
 	Toast.Parent = NotifyContainer
-	Instance.new("UICorner", Toast).CornerRadius = UDim.new(0, 10)
+	Instance.new("UICorner", Toast).CornerRadius = UDim.new(0, 12)
 
 	local Stroke = Instance.new("UIStroke")
 	Stroke.Color = color or Color3.fromRGB(0, 130, 255)
 	Stroke.Thickness = 1.5
 	Stroke.Parent = Toast
 
+	-- Egg image on the left side
+	local EggImage = Instance.new("ImageLabel")
+	EggImage.Size = UDim2.fromOffset(44, 44)
+	EggImage.Position = UDim2.fromOffset(8, 8)
+	EggImage.BackgroundColor3 = Color3.fromRGB(25, 28, 40)
+	EggImage.BackgroundTransparency = 1
+	EggImage.Parent = Toast
+	Instance.new("UICorner", EggImage).CornerRadius = UDim.new(0, 10)
+	local imgSrc = EggImages[eggName] or ""
+	if imgSrc ~= "" then
+		EggImage.Image = imgSrc
+	else
+		EggImage.BackgroundColor3 = color or Color3.fromRGB(0, 130, 255)
+		EggImage.BackgroundTransparency = 0.3
+	end
+
 	local TitleLabel = Instance.new("TextLabel")
-	TitleLabel.Size = UDim2.new(1, -16, 0, 22)
-	TitleLabel.Position = UDim2.fromOffset(8, 6)
+	TitleLabel.Size = UDim2.new(1, -64, 0, 20)
+	TitleLabel.Position = UDim2.fromOffset(58, 8)
 	TitleLabel.BackgroundTransparency = 1
-	TitleLabel.Text = title
+	TitleLabel.Text = eggName .. " spawned!"
 	TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 	TitleLabel.TextSize = 13
 	TitleLabel.Font = Enum.Font.GothamBold
@@ -477,8 +535,8 @@ local function ShowNotification(title, body, color)
 	TitleLabel.Parent = Toast
 
 	local BodyLabel = Instance.new("TextLabel")
-	BodyLabel.Size = UDim2.new(1, -16, 1, -30)
-	BodyLabel.Position = UDim2.fromOffset(8, 26)
+	BodyLabel.Size = UDim2.new(1, -64, 1, -30)
+	BodyLabel.Position = UDim2.fromOffset(58, 28)
 	BodyLabel.BackgroundTransparency = 1
 	BodyLabel.Text = body
 	BodyLabel.TextColor3 = color or Color3.fromRGB(0, 200, 255)
@@ -492,8 +550,8 @@ local function ShowNotification(title, body, color)
 	-- Animate in
 	TweenService:Create(Toast, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(1, 0, 0, 64)}):Play()
 
-	-- Animate out after 4 seconds
-	task.delay(4, function()
+	-- Animate out after configured duration
+	task.delay(Settings.NotifyDuration, function()
 		if Toast.Parent then
 			TweenService:Create(Toast, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.In), {Size = UDim2.new(1, 0, 0, 0)}):Play()
 			task.wait(0.35)
@@ -508,6 +566,7 @@ workspace.DescendantAdded:Connect(function(Object)
 			CreateESP(Object)
 			local Data = Eggs[Object.Name]
 			if Data and Settings.NotifyEggs[Object.Name] ~= false then
+				local eggBody = Data.rarity .. "  -  Luck: " .. FormatNumber(Data.luck)
 				ShowNotification("🥚 " .. Object.Name .. " spawned!", Data.rarity .. " • Luck: " .. FormatNumber(Data.luck), RarityColors[Data.rarity])
 			end
 		end)
