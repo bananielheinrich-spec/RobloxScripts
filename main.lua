@@ -1,4 +1,4 @@
---// RIDE A PET - ULTRA HUB V8 (MODERN UI + PERFORMANCE SETTINGS)
+--// RIDE A PET - ULTRA HUB V9 (MODERN UI + PROXIMITY SCANNER)
 --// Put in StarterPlayer > StarterPlayerScripts
 
 local Players = game:GetService("Players")
@@ -128,10 +128,6 @@ local RarityColors = {
 	Etheral = Color3.fromRGB(0, 255, 240),
 }
 
---==================================================
--- EGG IMAGE DATABASE
---==================================================
-
 local EggImages = {
 	["White Egg"] = "rbxassetid://125038257015442",
 	["Brown Egg"] = "rbxassetid://112468794619740",
@@ -168,7 +164,7 @@ local EggImages = {
 -- SETTINGS & CONFIG
 --==================================================
 
-local SettingsFile = "RideAPet_HubSettings_V8.json"
+local SettingsFile = "RideAPet_HubSettings_V9.json"
 
 local Settings = {
 	ESPEnabled = true,
@@ -182,8 +178,9 @@ local Settings = {
 	AllowedEggs = {},
 	NotifyEggs = {},
 	NotifyEnabled = true,
-	ScanInterval = 500,
-	ESPMaxDistance = 600,
+	ScanInterval = 300,
+	ESPMaxDistance = 1000,
+	MaxClosestEggs = 3, -- zeigt nur die 3 nächsten Eier an
 	NotifyDuration = 4,
 	LowQualityMode = false,
 	DisableParticles = false,
@@ -229,59 +226,8 @@ local NeedsSpawnLogUpdate = false
 local FilterButtons = {}
 local UI_Toggles = {}
 local UI_SliderFills = {}
-local AutoTPDebounce = false
 local FlyVelocity = nil
-local FlyBody = nil
 local EggSpawnLog = {}
-
---==================================================
--- AUTO RE-EXECUTE & SERVER HOP SYSTEM
---==================================================
-
-local queueOnTeleport = queue_on_teleport or (syn and syn.queue_on_teleport) or queueonteleport
-
-local function QueueAutoReexecute()
-	if queueOnTeleport then
-		queueOnTeleport([[
-			repeat task.wait() until game:IsLoaded()
-			]] .. ScriptLoadstring)
-	end
-end
-
-local function RejoinCurrentServer()
-	QueueAutoReexecute()
-	TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, Player)
-end
-
-local function ServerHopLowPlayers()
-	QueueAutoReexecute()
-	local ApiUrl = "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
-	local Success, Response = pcall(function()
-		return HttpService:JSONDecode(game:HttpGet(ApiUrl))
-	end)
-	if Success and Response and Response.data then
-		for _, ServerData in ipairs(Response.data) do
-			if ServerData.playing < ServerData.maxPlayers and ServerData.id ~= game.JobId then
-				TeleportService:TeleportToPlaceInstance(game.PlaceId, ServerData.id, Player)
-				return
-			end
-		end
-	end
-	TeleportService:Teleport(game.PlaceId, Player)
-end
-
---==================================================
--- UI ANIMATION HELPERS
---==================================================
-
-local function CreateClickBounce(Button)
-	Button.MouseButton1Down:Connect(function()
-		TweenService:Create(Button, TweenInfo.new(0.1, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {Size = UDim2.new(Button.Size.X.Scale, Button.Size.X.Offset - 4, Button.Size.Y.Scale, Button.Size.Y.Offset - 2)}):Play()
-	end)
-	Button.MouseButton1Up:Connect(function()
-		TweenService:Create(Button, TweenInfo.new(0.1, Enum.EasingStyle.Bounce, Enum.EasingDirection.Out), {Size = UDim2.new(Button.Size.X.Scale, Button.Size.X.Offset + 4, Button.Size.Y.Scale, Button.Size.Y.Offset + 2)}):Play()
-	end)
-end
 
 --==================================================
 -- HELPER FUNCTIONS
@@ -308,12 +254,6 @@ end
 local function TeleportTo(Position)
 	local Root = GetRoot()
 	if Root and Position then Root.CFrame = CFrame.new(Position + Vector3.new(0, 3, 0)) end
-end
-
-local function PressKey2()
-	VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Two, false, game)
-	task.wait(0.08)
-	VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Two, false, game)
 end
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -422,8 +362,7 @@ end
 
 local function StartFly()
 	local Root = GetRoot()
-	if not Root then return end
-	if FlyVelocity then return end
+	if not Root or FlyVelocity then return end
 	FlyVelocity = Instance.new("BodyVelocity")
 	FlyVelocity.MaxForce = Vector3.new(1, 1, 1) * 1e9
 	FlyVelocity.Velocity = Vector3.zero
@@ -454,8 +393,8 @@ local function CreateESP(Egg)
 	local Billboard = Instance.new("BillboardGui")
 	Billboard.Name = "EggESP"
 	Billboard.Adornee = Adornee
-	Billboard.Size = UDim2.fromOffset(145, 46)
-	Billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+	Billboard.Size = UDim2.fromOffset(150, 52)
+	Billboard.StudsOffset = Vector3.new(0, 3, 0)
 	Billboard.AlwaysOnTop = true
 	Billboard.MaxDistance = Settings.ESPMaxDistance
 	Billboard.Enabled = Settings.ESPEnabled
@@ -470,7 +409,7 @@ local function CreateESP(Egg)
 
 	local Stroke = Instance.new("UIStroke")
 	Stroke.Color = RarityColors[Data.rarity] or Color3.new(1, 1, 1)
-	Stroke.Thickness = 1.8
+	Stroke.Thickness = 2
 	Stroke.Parent = Frame
 
 	local Text = Instance.new("TextLabel")
@@ -483,17 +422,16 @@ local function CreateESP(Egg)
 	Text.TextWrapped = true
 	Text.Parent = Frame
 
-	-- Egg image in ESP
 	local EggImg = EggImages[Egg.Name] or ""
 	if EggImg ~= "" then
 		local Img = Instance.new("ImageLabel")
-		Img.Size = UDim2.fromOffset(20, 20)
-		Img.Position = UDim2.fromOffset(2, 2)
+		Img.Size = UDim2.fromOffset(24, 24)
+		Img.Position = UDim2.fromOffset(4, 14)
 		Img.BackgroundTransparency = 1
 		Img.Image = EggImg
 		Img.Parent = Frame
-		Text.Position = UDim2.fromOffset(24, 1)
-		Text.Size = UDim2.new(1, -28, 1, -2)
+		Text.Position = UDim2.fromOffset(30, 2)
+		Text.Size = UDim2.new(1, -34, 1, -4)
 	end
 
 	EggESP[Egg] = { gui = Billboard, text = Text }
@@ -509,21 +447,62 @@ local function RemoveESP(Egg)
 	end
 end
 
+--==================================================
+-- NÄCHSTE-EIER PROXIMITY SCANNER
+--==================================================
+
 local function ScanEggs()
-	local Found = {}
+	if not Settings.RadarEnabled then
+		for Egg, _ in pairs(EggESP) do RemoveESP(Egg) end
+		return
+	end
+
+	local Root = GetRoot()
+	local FoundEggs = {}
+
 	for _, Object in ipairs(workspace:GetDescendants()) do
-		if IsEgg(Object) then
-			Found[Object] = true
-			if not EggESP[Object] then CreateESP(Object) end
+		if IsEgg(Object) and Settings.AllowedEggs[Object.Name] ~= false then
+			local Pos = GetObjectPosition(Object)
+			if Pos then
+				local Dist = Root and (Root.Position - Pos).Magnitude or 99999
+				if Dist <= Settings.ESPMaxDistance then
+					table.insert(FoundEggs, {Egg = Object, Distance = Dist})
+				end
+			end
 		end
 	end
+
+	-- Sortieren nach Entfernung (Nächstes zuerst)
+	table.sort(FoundEggs, function(a, b) return a.Distance < b.Distance end)
+
+	local ActiveDict = {}
+	local Limit = math.min(#FoundEggs, Settings.MaxClosestEggs or 3)
+
+	for i = 1, Limit do
+		local Item = FoundEggs[i]
+		local Egg = Item.Egg
+		ActiveDict[Egg] = true
+
+		if not EggESP[Egg] then
+			CreateESP(Egg)
+		end
+
+		if EggESP[Egg] and EggESP[Egg].text then
+			local Data = Eggs[Egg.Name]
+			EggESP[Egg].text.Text = string.format("%s\n%s (%.0fm)", Egg.Name, Data and Data.rarity or "", Item.Distance)
+		end
+	end
+
+	-- Alle Eier entfernen, die nicht mehr zu den N-Nächsten gehören
 	for Egg, _ in pairs(EggESP) do
-		if not Found[Egg] or not Egg.Parent or not IsEgg(Egg) then RemoveESP(Egg) end
+		if not ActiveDict[Egg] or not Egg.Parent or not IsEgg(Egg) then
+			RemoveESP(Egg)
+		end
 	end
 end
 
 --==================================================
--- EGG SPAWN NOTIFICATION SYSTEM
+-- NOTIFICATIONS SYSTEM
 --==================================================
 
 local function GetTheme()
@@ -551,22 +530,12 @@ NotifyLayout.Parent = NotifyContainer
 local NotifyCount = 0
 
 local function AddSpawnLogEntry(eggName, rarity, luck)
-	local entry = {
-		name = eggName,
-		rarity = rarity,
-		luck = luck,
-		time = os.time(),
-	}
-	table.insert(EggSpawnLog, 1, entry)
-	while #EggSpawnLog > Settings.MaxSpawnLogEntries do
-		table.remove(EggSpawnLog)
-	end
+	table.insert(EggSpawnLog, 1, {name = eggName, rarity = rarity, luck = luck, time = os.time()})
+	while #EggSpawnLog > Settings.MaxSpawnLogEntries do table.remove(EggSpawnLog) end
 end
 
 local function ShowNotification(eggName, body, color)
-	if not Settings.NotifyEnabled then return end
-	if NotifyCount >= 3 then return end
-
+	if not Settings.NotifyEnabled or NotifyCount >= 3 then return end
 	NotifyCount += 1
 	local Theme = GetTheme()
 
@@ -581,18 +550,8 @@ local function ShowNotification(eggName, body, color)
 	local Stroke = Instance.new("UIStroke")
 	Stroke.Color = color or Theme.Accent
 	Stroke.Thickness = 1.5
-	Stroke.Transparency = 0.2
 	Stroke.Parent = Toast
 
-	-- Left color bar
-	local Bar = Instance.new("Frame")
-	Bar.Size = UDim2.new(0, 4, 1, 0)
-	Bar.BackgroundColor3 = color or Theme.Accent
-	Bar.BorderSizePixel = 0
-	Bar.Parent = Toast
-	Instance.new("UICorner", Bar).CornerRadius = UDim.new(1, 0)
-
-	-- Egg image
 	local EggImage = Instance.new("ImageLabel")
 	EggImage.Size = UDim2.fromOffset(42, 42)
 	EggImage.Position = UDim2.fromOffset(12, 10)
@@ -600,20 +559,15 @@ local function ShowNotification(eggName, body, color)
 	EggImage.BackgroundTransparency = 0.5
 	EggImage.Parent = Toast
 	Instance.new("UICorner", EggImage).CornerRadius = UDim.new(0, 10)
+
 	local imgSrc = EggImages[eggName] or ""
-	if imgSrc ~= "" then
-		EggImage.Image = imgSrc
-		EggImage.ScaleType = Enum.ScaleType.Fit
-	else
-		EggImage.BackgroundColor3 = color or Theme.Accent
-		EggImage.BackgroundTransparency = 0.3
-	end
+	if imgSrc ~= "" then EggImage.Image = imgSrc else EggImage.BackgroundColor3 = color or Theme.Accent end
 
 	local TitleLabel = Instance.new("TextLabel")
 	TitleLabel.Size = UDim2.new(1, -68, 0, 20)
 	TitleLabel.Position = UDim2.fromOffset(62, 10)
 	TitleLabel.BackgroundTransparency = 1
-	TitleLabel.Text = eggName .. " spawned!"
+	TitleLabel.Text = eggName .. " gespawnt!"
 	TitleLabel.TextColor3 = Theme.Text
 	TitleLabel.TextSize = 13
 	TitleLabel.Font = Enum.Font.GothamBold
@@ -628,16 +582,14 @@ local function ShowNotification(eggName, body, color)
 	BodyLabel.TextColor3 = color or Theme.Accent
 	BodyLabel.TextSize = 11
 	BodyLabel.Font = Enum.Font.GothamMedium
-	BodyLabel.TextWrapped = true
 	BodyLabel.TextXAlignment = Enum.TextXAlignment.Left
-	BodyLabel.TextYAlignment = Enum.TextYAlignment.Top
 	BodyLabel.Parent = Toast
 
 	TweenService:Create(Toast, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(1, 0, 0, 62)}):Play()
 
 	task.delay(Settings.NotifyDuration, function()
 		if Toast.Parent then
-			TweenService:Create(Toast, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.In), {Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1}):Play()
+			TweenService:Create(Toast, TweenInfo.new(0.3), {Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1}):Play()
 			task.wait(0.35)
 			Toast:Destroy()
 			NotifyCount = math.max(0, NotifyCount - 1)
@@ -648,12 +600,11 @@ end
 workspace.DescendantAdded:Connect(function(Object)
 	if IsEgg(Object) then
 		task.spawn(function()
-			CreateESP(Object)
 			local Data = Eggs[Object.Name]
 			if Data then
 				AddSpawnLogEntry(Object.Name, Data.rarity, Data.luck)
 				if Settings.NotifyEggs[Object.Name] ~= false then
-					ShowNotification(Object.Name, Data.rarity .. "  -  Luck: " .. FormatNumber(Data.luck), RarityColors[Data.rarity])
+					ShowNotification(Object.Name, Data.rarity .. " | Luck: " .. FormatNumber(Data.luck), RarityColors[Data.rarity])
 				end
 				NeedsSpawnLogUpdate = true
 			end
@@ -662,43 +613,11 @@ workspace.DescendantAdded:Connect(function(Object)
 end)
 
 workspace.DescendantRemoving:Connect(function(Object)
-	if EggESP[Object] then 
-		RemoveESP(Object)
-		if Settings.AutoTPToBase then
-			task.spawn(function()
-				task.wait(0.3)
-				local GridSpot = GetNextBaseplateSpot()
-				if GridSpot then
-					TeleportTo(GridSpot)
-				else
-					TeleportToBase()
-				end
-			end)
-		end
-	end
+	if EggESP[Object] then RemoveESP(Object) end
 end)
 
-if GameRemotes then
-	local ArrivalClaim = GameRemotes:FindFirstChild("EggArrivalClaim")
-	if ArrivalClaim then
-		ArrivalClaim.OnClientEvent:Connect(function()
-			if Settings.AutoTPToBase then
-				task.spawn(function()
-					task.wait(0.2)
-					local GridSpot = GetNextBaseplateSpot()
-					if GridSpot then
-						TeleportTo(GridSpot)
-					else
-						TeleportToBase()
-					end
-				end)
-			end
-		end)
-	end
-end
-
 --==================================================
--- UI DESIGN & THEME ENGINE
+-- MAIN GUI CREATION & VISUAL DESIGN
 --==================================================
 
 local GUI = Instance.new("ScreenGui")
@@ -716,8 +635,7 @@ Main.Parent = GUI
 Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 16)
 
 local MainStroke = Instance.new("UIStroke")
-MainStroke.Thickness = 1.5
-MainStroke.Transparency = 0.3
+MainStroke.Thickness = 2
 MainStroke.Parent = Main
 
 local Topbar = Instance.new("Frame")
@@ -736,17 +654,17 @@ Title.Position = UDim2.fromOffset(20, 6)
 Title.BackgroundTransparency = 1
 Title.Text = "RIDE A PET"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.TextSize = 15
+Title.TextSize = 16
 Title.Font = Enum.Font.GothamBold
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Parent = Topbar
 
 local SubTitle = Instance.new("TextLabel")
 SubTitle.Size = UDim2.new(1, -90, 0, 14)
-SubTitle.Position = UDim2.fromOffset(20, 32)
+SubTitle.Position = UDim2.fromOffset(20, 30)
 SubTitle.BackgroundTransparency = 1
-SubTitle.Text = "Ultra Hub V9"
-SubTitle.TextColor3 = Color3.fromRGB(130, 140, 160)
+SubTitle.Text = "Proximity Hub V9"
+SubTitle.TextColor3 = Color3.fromRGB(140, 150, 170)
 SubTitle.TextSize = 10
 SubTitle.Font = Enum.Font.GothamMedium
 SubTitle.TextXAlignment = Enum.TextXAlignment.Left
@@ -766,7 +684,7 @@ Instance.new("UICorner", Minimize).CornerRadius = UDim.new(0, 10)
 local Close = Instance.new("TextButton")
 Close.Size = UDim2.fromOffset(34, 34)
 Close.Position = UDim2.new(1, -40, 0, 9)
-Close.BackgroundColor3 = Color3.fromRGB(200, 40, 60)
+Close.BackgroundColor3 = Color3.fromRGB(220, 40, 60)
 Close.Text = "X"
 Close.TextColor3 = Color3.fromRGB(255, 255, 255)
 Close.TextSize = 14
@@ -823,34 +741,41 @@ local function ApplyTheme(ThemeName)
 		local isActive = (p.btn == ActiveTabBtn)
 		local bar = TabAccentBars[p.btn]
 		if isActive then
-			TweenService:Create(p.btn, TweenInfo.new(0.3), {BackgroundColor3 = Theme.CardBg, TextColor3 = Theme.Text}):Play()
-			if bar then TweenService:Create(bar, TweenInfo.new(0.2), {BackgroundTransparency = 0, Size = UDim2.new(0, 3, 0.65, 0)}):Play() end
+			TweenService:Create(p.btn, TweenInfo.new(0.25), {BackgroundColor3 = Theme.CardBg, TextColor3 = Theme.Text}):Play()
+			if bar then
+				bar.BackgroundColor3 = Theme.Accent
+				TweenService:Create(bar, TweenInfo.new(0.2), {BackgroundTransparency = 0, Size = UDim2.new(0, 4, 0.65, 0)}):Play()
+			end
 		else
-			TweenService:Create(p.btn, TweenInfo.new(0.3), {BackgroundColor3 = Theme.SidebarBg, TextColor3 = Theme.TextDim}):Play()
-			if bar then TweenService:Create(bar, TweenInfo.new(0.2), {BackgroundTransparency = 1, Size = UDim2.new(0, 3, 0, 0)}):Play() end
+			TweenService:Create(p.btn, TweenInfo.new(0.25), {BackgroundColor3 = Theme.SidebarBg, TextColor3 = Theme.TextDim}):Play()
+			if bar then
+				TweenService:Create(bar, TweenInfo.new(0.2), {BackgroundTransparency = 1, Size = UDim2.new(0, 4, 0, 0)}):Play()
+			end
 		end
 	end
 
 	for _, toggle in pairs(UI_Toggles) do
 		local IsOn = Settings[toggle.Key]
 		if toggle.Bg then
-			TweenService:Create(toggle.Bg, TweenInfo.new(0.3), {BackgroundColor3 = IsOn and Theme.Accent or Color3.fromRGB(40, 44, 58)}):Play()
+			TweenService:Create(toggle.Bg, TweenInfo.new(0.25), {BackgroundColor3 = IsOn and Theme.Accent or Color3.fromRGB(40, 44, 58)}):Play()
 		end
 		if toggle.Knob then
 			local pos = IsOn and UDim2.new(1, -22, 0.5, -10) or UDim2.new(0, 2, 0.5, -10)
-			TweenService:Create(toggle.Knob, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = pos}):Play()
+			TweenService:Create(toggle.Knob, TweenInfo.new(0.25), {Position = pos}):Play()
 		end
 	end
 
-	for _, fill in pairs(UI_SliderFills) do
-		fill.BackgroundColor3 = Theme.Accent
-	end
+	for _, fill in pairs(UI_SliderFills) do fill.BackgroundColor3 = Theme.Accent end
 end
 
+-- TAB ERSTELLUNG (SICHTBARKEIT GEFIXT)
 local function CreateTab(Name)
+	local Theme = GetTheme()
 	local TabBtn = Instance.new("TextButton")
 	TabBtn.Size = UDim2.new(1, 0, 0, 38)
 	TabBtn.Text = "   " .. Name
+	TabBtn.TextColor3 = Theme.TextDim -- Explizite Initialfarbe
+	TabBtn.BackgroundColor3 = Theme.SidebarBg -- Explizite Initialfarbe
 	TabBtn.TextSize = 12
 	TabBtn.Font = Enum.Font.GothamSemibold
 	TabBtn.TextXAlignment = Enum.TextXAlignment.Left
@@ -859,7 +784,7 @@ local function CreateTab(Name)
 	Instance.new("UICorner", TabBtn).CornerRadius = UDim.new(0, 10)
 
 	local AccentBar = Instance.new("Frame")
-	AccentBar.Size = UDim2.new(0, 3, 0, 0)
+	AccentBar.Size = UDim2.new(0, 4, 0, 0)
 	AccentBar.Position = UDim2.fromOffset(0, 7)
 	AccentBar.BorderSizePixel = 0
 	AccentBar.BackgroundTransparency = 1
@@ -907,13 +832,13 @@ local MainTab = CreateTab("Dashboard")
 local FilterTab = CreateTab("Egg Filter")
 local TeleportTab = CreateTab("Teleports")
 local PerfTab = CreateTab("Performance")
-local SettingsTab = CreateTab("Settings & Server")
+local SettingsTab = CreateTab("Settings")
 
 ActiveTabBtn = Pages["Dashboard"].btn
 Pages["Dashboard"].page.Visible = true
 
 --==================================================
--- UI CONTROLS
+-- UI CONTROL BUILDERS
 --==================================================
 
 local function CreateToggle(Parent, TextLabel, SettingKey, Callback)
@@ -955,15 +880,6 @@ local function CreateToggle(Parent, TextLabel, SettingKey, Callback)
 	Knob.Parent = SwitchBg
 	Instance.new("UICorner", Knob).CornerRadius = UDim.new(1, 0)
 
-	Row.MouseEnter:Connect(function()
-		local T = GetTheme()
-		TweenService:Create(Row, TweenInfo.new(0.15), {BackgroundColor3 = T.CardHover}):Play()
-	end)
-	Row.MouseLeave:Connect(function()
-		local T = GetTheme()
-		TweenService:Create(Row, TweenInfo.new(0.15), {BackgroundColor3 = T.CardBg}):Play()
-	end)
-
 	table.insert(UI_Toggles, {Btn = SwitchBg, Bg = SwitchBg, Knob = Knob, Key = SettingKey})
 
 	SwitchBg.MouseButton1Click:Connect(function()
@@ -971,7 +887,7 @@ local function CreateToggle(Parent, TextLabel, SettingKey, Callback)
 		local State = Settings[SettingKey]
 		local T = GetTheme()
 		TweenService:Create(SwitchBg, TweenInfo.new(0.25), {BackgroundColor3 = State and T.Accent or Color3.fromRGB(40, 44, 58)}):Play()
-		TweenService:Create(Knob, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = State and UDim2.new(1, -22, 0.5, -10) or UDim2.new(0, 2, 0.5, -10)}):Play()
+		TweenService:Create(Knob, TweenInfo.new(0.25), {Position = State and UDim2.new(1, -22, 0.5, -10) or UDim2.new(0, 2, 0.5, -10)}):Play()
 		SaveSettings()
 		if Callback then Callback(State) end
 	end)
@@ -1033,10 +949,6 @@ local function CreateSlider(Parent, TextLabel, SettingKey, Min, Max, Callback)
 	Knob.BorderSizePixel = 0
 	Knob.Parent = SliderBg
 	Instance.new("UICorner", Knob).CornerRadius = UDim.new(1, 0)
-	local KnobStroke = Instance.new("UIStroke")
-	KnobStroke.Color = Theme.Accent
-	KnobStroke.Thickness = 2
-	KnobStroke.Parent = Knob
 
 	local Button = Instance.new("TextButton")
 	Button.Size = UDim2.fromScale(1, 1)
@@ -1063,37 +975,30 @@ local function CreateSlider(Parent, TextLabel, SettingKey, Min, Max, Callback)
 		end
 	end)
 	UserInputService.InputChanged:Connect(function(Input)
-		if Dragging and Input.UserInputType == Enum.UserInputType.MouseMovement then
-			Update(Input)
-		end
+		if Dragging and Input.UserInputType == Enum.UserInputType.MouseMovement then Update(Input) end
 	end)
 	UserInputService.InputEnded:Connect(function(Input)
-		if Input.UserInputType == Enum.UserInputType.MouseButton1 then
-			Dragging = false
-		end
+		if Input.UserInputType == Enum.UserInputType.MouseButton1 then Dragging = false end
 	end)
 end
 
 --==================================================
--- DASHBOARD TAB
+-- DASHBOARD TAB CONTENTS
 --==================================================
 
 local MainLayout = Instance.new("UIListLayout")
 MainLayout.Padding = UDim.new(0, 8)
 MainLayout.Parent = MainTab
 
-CreateToggle(MainTab, "ESP", "ESPEnabled", function(val)
+CreateToggle(MainTab, "ESP / Tracers", "ESPEnabled", function(val)
 	for Egg, Info in pairs(EggESP) do
 		if Info.gui then Info.gui.Enabled = val end
 	end
 end)
 
-CreateToggle(MainTab, "Radar / Scan", "RadarEnabled", function(val) end)
-
+CreateToggle(MainTab, "Proximity Radar", "RadarEnabled", function(val) end)
 CreateToggle(MainTab, "Auto TP to Base", "AutoTPToBase", function(val) end)
-
 CreateToggle(MainTab, "Notifications", "NotifyEnabled", function(val) end)
-
 CreateToggle(MainTab, "Fly Mode", "FlyEnabled", function(val)
 	if val then StartFly() else StopFly() end
 end)
@@ -1101,7 +1006,6 @@ end)
 CreateSlider(MainTab, "Fly Speed", "FlySpeed", 20, 300, function(val) end)
 
 local function CreateActionButton(Parent, Text, Color, Callback)
-	local Theme = GetTheme()
 	local Btn = Instance.new("TextButton")
 	Btn.Size = UDim2.new(1, -8, 0, 40)
 	Btn.BackgroundColor3 = Color
@@ -1113,39 +1017,23 @@ local function CreateActionButton(Parent, Text, Color, Callback)
 	Btn.Parent = Parent
 	Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 10)
 
-	Btn.MouseEnter:Connect(function()
-		TweenService:Create(Btn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(
-			math.min(255, math.floor(Color.R * 255) + 20),
-			math.min(255, math.floor(Color.G * 255) + 20),
-			math.min(255, math.floor(Color.B * 255) + 20)
-		)}):Play()
-	end)
-	Btn.MouseLeave:Connect(function()
-		TweenService:Create(Btn, TweenInfo.new(0.15), {BackgroundColor3 = Color}):Play()
-	end)
-	Btn.MouseButton1Down:Connect(function()
-		TweenService:Create(Btn, TweenInfo.new(0.08), {Size = UDim2.new(1, -12, 0, 36)}):Play()
-	end)
-	Btn.MouseButton1Up:Connect(function()
-		TweenService:Create(Btn, TweenInfo.new(0.08, Enum.EasingStyle.Bounce), {Size = UDim2.new(1, -8, 0, 40)}):Play()
-	end)
 	Btn.MouseButton1Click:Connect(Callback)
 	return Btn
 end
 
-CreateActionButton(MainTab, "Teleport To Baseplate Spot", Color3.fromRGB(140, 40, 255), TeleportToBase)
-CreateActionButton(MainTab, "Rearrange Eggs (Grid)", Color3.fromRGB(0, 140, 200), RearrangePlotEggs)
+CreateActionButton(MainTab, "Teleport to Base Grid", Color3.fromRGB(140, 40, 255), TeleportToBase)
+CreateActionButton(MainTab, "Rearrange Plot Eggs", Color3.fromRGB(0, 140, 200), RearrangePlotEggs)
 
 -- Status Card
 local StatusCard = Instance.new("Frame")
-StatusCard.Size = UDim2.new(1, -8, 0, 90)
+StatusCard.Size = UDim2.new(1, -8, 0, 80)
 StatusCard.BackgroundColor3 = Color3.fromRGB(18, 22, 34)
 StatusCard.BorderSizePixel = 0
 StatusCard.Parent = MainTab
 Instance.new("UICorner", StatusCard).CornerRadius = UDim.new(0, 10)
 
 local StatusAccent = Instance.new("Frame")
-StatusAccent.Size = UDim2.new(0, 3, 1, 0)
+StatusAccent.Size = UDim2.new(0, 4, 1, 0)
 StatusAccent.BorderSizePixel = 0
 StatusAccent.Parent = StatusCard
 Instance.new("UICorner", StatusAccent).CornerRadius = UDim.new(1, 0)
@@ -1154,7 +1042,7 @@ local StatusTitle = Instance.new("TextLabel")
 StatusTitle.Size = UDim2.new(1, -20, 0, 18)
 StatusTitle.Position = UDim2.fromOffset(12, 8)
 StatusTitle.BackgroundTransparency = 1
-StatusTitle.Text = "STATUS"
+StatusTitle.Text = "PROXIMITY STATUS"
 StatusTitle.TextColor3 = Color3.fromRGB(150, 160, 180)
 StatusTitle.TextSize = 10
 StatusTitle.Font = Enum.Font.GothamBold
@@ -1168,10 +1056,9 @@ StatusText.BackgroundTransparency = 1
 StatusText.TextColor3 = Color3.fromRGB(230, 235, 245)
 StatusText.TextSize = 12
 StatusText.Font = Enum.Font.GothamMedium
-StatusText.TextWrapped = true
 StatusText.TextXAlignment = Enum.TextXAlignment.Left
 StatusText.TextYAlignment = Enum.TextYAlignment.Top
-StatusText.Text = "Scanning..."
+StatusText.Text = "Scanning closest eggs..."
 StatusText.Parent = StatusCard
 
 local function UpdateStatus()
@@ -1180,11 +1067,11 @@ local function UpdateStatus()
 	local Theme = GetTheme()
 	StatusAccent.BackgroundColor3 = Settings.RadarEnabled and Theme.Accent or Color3.fromRGB(80, 90, 110)
 	if Settings.RadarEnabled then
-		StatusText.Text = "Scanning...  |  Eggs tracked: " .. count
-		StatusText.TextColor3 = Color3.fromRGB(0, 200, 120)
+		StatusText.Text = string.format("Tracking %d closest egg(s) near you.", count)
+		StatusText.TextColor3 = Color3.fromRGB(0, 210, 130)
 	else
-		StatusText.Text = "Scan disabled  |  Eggs tracked: " .. count
-		StatusText.TextColor3 = Color3.fromRGB(100, 110, 130)
+		StatusText.Text = "Radar disabled."
+		StatusText.TextColor3 = Color3.fromRGB(120, 130, 150)
 	end
 end
 
@@ -1196,37 +1083,6 @@ local FilterLayout = Instance.new("UIListLayout")
 FilterLayout.Padding = UDim.new(0, 6)
 FilterLayout.Parent = FilterTab
 
-local FilterHeader = Instance.new("TextLabel")
-FilterHeader.Size = UDim2.new(1, -8, 0, 24)
-FilterHeader.BackgroundTransparency = 1
-FilterHeader.Text = "Toggle which eggs to track and notify"
-FilterHeader.TextColor3 = Color3.fromRGB(170, 180, 200)
-FilterHeader.TextSize = 11
-FilterHeader.Font = Enum.Font.GothamMedium
-FilterHeader.TextXAlignment = Enum.TextXAlignment.Left
-FilterHeader.Parent = FilterTab
-
-local SelectAllBtn = Instance.new("TextButton")
-SelectAllBtn.Size = UDim2.new(1, -8, 0, 32)
-SelectAllBtn.BackgroundColor3 = Color3.fromRGB(0, 130, 255)
-SelectAllBtn.Text = "Select All Eggs"
-SelectAllBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-SelectAllBtn.TextSize = 12
-SelectAllBtn.Font = Enum.Font.GothamBold
-SelectAllBtn.Parent = FilterTab
-Instance.new("UICorner", SelectAllBtn).CornerRadius = UDim.new(0, 8)
-
-local DeselectAllBtn = Instance.new("TextButton")
-DeselectAllBtn.Size = UDim2.new(1, -8, 0, 32)
-DeselectAllBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
-DeselectAllBtn.Text = "Deselect All Eggs"
-DeselectAllBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-DeselectAllBtn.TextSize = 12
-DeselectAllBtn.Font = Enum.Font.GothamBold
-DeselectAllBtn.Parent = FilterTab
-Instance.new("UICorner", DeselectAllBtn).CornerRadius = UDim.new(0, 8)
-
--- Egg filter buttons with images
 for EggName, Data in pairs(Eggs) do
 	local Card = Instance.new("TextButton")
 	Card.Size = UDim2.new(1, -8, 0, 40)
@@ -1235,48 +1091,31 @@ for EggName, Data in pairs(Eggs) do
 	Card.Parent = FilterTab
 	Instance.new("UICorner", Card).CornerRadius = UDim.new(0, 8)
 
-	-- Egg image
 	local Img = Instance.new("ImageLabel")
 	Img.Size = UDim2.fromOffset(30, 30)
 	Img.Position = UDim2.fromOffset(5, 5)
 	Img.BackgroundTransparency = 1
 	Img.Parent = Card
 	local imgSrc = EggImages[EggName] or ""
-	if imgSrc ~= "" then
-		Img.Image = imgSrc
-	else
-		Img.BackgroundColor3 = RarityColors[Data.rarity]
-		Img.BackgroundTransparency = 0.3
-	end
+	if imgSrc ~= "" then Img.Image = imgSrc else Img.BackgroundColor3 = RarityColors[Data.rarity] Img.BackgroundTransparency = 0.3 end
 
-	-- Egg name label
 	local NameLbl = Instance.new("TextLabel")
 	NameLbl.Size = UDim2.new(1, -80, 1, 0)
 	NameLbl.Position = UDim2.fromOffset(40, 0)
 	NameLbl.BackgroundTransparency = 1
-	NameLbl.Text = EggName .. "  (" .. Data.rarity .. ")"
+	NameLbl.Text = EggName .. " (" .. Data.rarity .. ")"
 	NameLbl.TextColor3 = Color3.fromRGB(220, 225, 240)
 	NameLbl.TextSize = 11
 	NameLbl.Font = Enum.Font.GothamMedium
 	NameLbl.TextXAlignment = Enum.TextXAlignment.Left
 	NameLbl.Parent = Card
 
-	-- Rarity color stripe
-	local Stripe = Instance.new("Frame")
-	Stripe.Size = UDim2.fromOffset(3, 30)
-	Stripe.Position = UDim2.new(1, -12, 0, 5)
-	Stripe.BackgroundColor3 = RarityColors[Data.rarity]
-	Stripe.BorderSizePixel = 0
-	Stripe.Parent = Card
-	Instance.new("UICorner", Stripe).CornerRadius = UDim.new(1, 0)
-
-	-- State indicator
 	local StateLbl = Instance.new("TextLabel")
 	StateLbl.Size = UDim2.fromOffset(30, 20)
 	StateLbl.Position = UDim2.new(1, -45, 0, 10)
 	StateLbl.BackgroundTransparency = 1
 	StateLbl.Text = Settings.AllowedEggs[EggName] and "ON" or "OFF"
-	StateLbl.TextColor3 = Settings.AllowedEggs[EggName] and Color3.fromRGB(0, 200, 120) or Color3.fromRGB(150, 80, 80)
+	StateLbl.TextColor3 = Settings.AllowedEggs[EggName] and Color3.fromRGB(0, 200, 120) or Color3.fromRGB(180, 70, 70)
 	StateLbl.TextSize = 10
 	StateLbl.Font = Enum.Font.GothamBold
 	StateLbl.Parent = Card
@@ -1286,40 +1125,13 @@ for EggName, Data in pairs(Eggs) do
 	Card.MouseButton1Click:Connect(function()
 		Settings.AllowedEggs[EggName] = not Settings.AllowedEggs[EggName]
 		Settings.NotifyEggs[EggName] = Settings.AllowedEggs[EggName]
-		local entry = FilterButtons[EggName]
-		if entry then
-			entry.state.Text = Settings.AllowedEggs[EggName] and "ON" or "OFF"
-			entry.state.TextColor3 = Settings.AllowedEggs[EggName] and Color3.fromRGB(0, 200, 120) or Color3.fromRGB(150, 80, 80)
+		if FilterButtons[EggName] then
+			FilterButtons[EggName].state.Text = Settings.AllowedEggs[EggName] and "ON" or "OFF"
+			FilterButtons[EggName].state.TextColor3 = Settings.AllowedEggs[EggName] and Color3.fromRGB(0, 200, 120) or Color3.fromRGB(180, 70, 70)
 		end
 		SaveSettings()
 	end)
 end
-
-SelectAllBtn.MouseButton1Click:Connect(function()
-	for EggName, _ in pairs(Eggs) do
-		Settings.AllowedEggs[EggName] = true
-		Settings.NotifyEggs[EggName] = true
-		local entry = FilterButtons[EggName]
-		if entry then
-			entry.state.Text = "ON"
-			entry.state.TextColor3 = Color3.fromRGB(0, 200, 120)
-		end
-	end
-	SaveSettings()
-end)
-
-DeselectAllBtn.MouseButton1Click:Connect(function()
-	for EggName, _ in pairs(Eggs) do
-		Settings.AllowedEggs[EggName] = false
-		Settings.NotifyEggs[EggName] = false
-		local entry = FilterButtons[EggName]
-		if entry then
-			entry.state.Text = "OFF"
-			entry.state.TextColor3 = Color3.fromRGB(150, 80, 80)
-		end
-	end
-	SaveSettings()
-end)
 
 --==================================================
 -- TELEPORT TAB
@@ -1328,26 +1140,6 @@ end)
 local TPLayout = Instance.new("UIListLayout")
 TPLayout.Padding = UDim.new(0, 6)
 TPLayout.Parent = TeleportTab
-
-local TPHeader = Instance.new("TextLabel")
-TPHeader.Size = UDim2.new(1, -8, 0, 24)
-TPHeader.BackgroundTransparency = 1
-TPHeader.Text = "Click an egg to teleport to it"
-TPHeader.TextColor3 = Color3.fromRGB(170, 180, 200)
-TPHeader.TextSize = 11
-TPHeader.Font = Enum.Font.GothamMedium
-TPHeader.TextXAlignment = Enum.TextXAlignment.Left
-TPHeader.Parent = TeleportTab
-
-local TPRefreshBtn = Instance.new("TextButton")
-TPRefreshBtn.Size = UDim2.new(1, -8, 0, 32)
-TPRefreshBtn.BackgroundColor3 = Color3.fromRGB(0, 130, 255)
-TPRefreshBtn.Text = "Refresh Egg List"
-TPRefreshBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-TPRefreshBtn.TextSize = 12
-TPRefreshBtn.Font = Enum.Font.GothamBold
-TPRefreshBtn.Parent = TeleportTab
-Instance.new("UICorner", TPRefreshBtn).CornerRadius = UDim.new(0, 8)
 
 local TPListFrame = Instance.new("Frame")
 TPListFrame.Size = UDim2.new(1, -8, 0, 0)
@@ -1373,28 +1165,14 @@ local function RefreshTPList()
 			Btn.Parent = TPListFrame
 			Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 8)
 
-			-- Egg image
-			local Img = Instance.new("ImageLabel")
-			Img.Size = UDim2.fromOffset(26, 26)
-			Img.Position = UDim2.fromOffset(5, 5)
-			Img.BackgroundTransparency = 1
-			Img.Parent = Btn
-			local imgSrc = EggImages[Egg.Name] or ""
-			if imgSrc ~= "" then
-				Img.Image = imgSrc
-			else
-				Img.BackgroundColor3 = RarityColors[Data.rarity]
-				Img.BackgroundTransparency = 0.3
-			end
-
 			local NameLbl = Instance.new("TextLabel")
-			NameLbl.Size = UDim2.new(1, -40, 1, 0)
-			NameLbl.Position = UDim2.fromOffset(36, 0)
+			NameLbl.Size = UDim2.new(1, -10, 1, 0)
+			NameLbl.Position = UDim2.fromOffset(10, 0)
 			NameLbl.BackgroundTransparency = 1
-			NameLbl.Text = Egg.Name
-			NameLbl.TextColor3 = RarityColors[Data.rarity] or Color3.fromRGB(255, 255, 255)
+			NameLbl.Text = Egg.Name .. " (" .. (Data and Data.rarity or "Common") .. ")"
+			NameLbl.TextColor3 = RarityColors[Data and Data.rarity or "Common"]
 			NameLbl.TextSize = 11
-			NameLbl.Font = Enum.Font.GothamMedium
+			NameLbl.Font = Enum.Font.GothamBold
 			NameLbl.TextXAlignment = Enum.TextXAlignment.Left
 			NameLbl.Parent = Btn
 
@@ -1406,26 +1184,25 @@ local function RefreshTPList()
 	end
 end
 
-TPRefreshBtn.MouseButton1Click:Connect(RefreshTPList)
+--==================================================
+-- PERFORMANCE TAB
+--==================================================
+
+local PerfLayout = Instance.new("UIListLayout")
+PerfLayout.Padding = UDim.new(0, 8)
+PerfLayout.Parent = PerfTab
+
+CreateSlider(PerfTab, "Max Nächste Eier (Proximity)", "MaxClosestEggs", 1, 10, function(val) end)
+CreateSlider(PerfTab, "Scan Rate (ms)", "ScanInterval", 100, 2000, function(val) end)
+CreateSlider(PerfTab, "Max Scan Radius (Studs)", "ESPMaxDistance", 100, 3000, function(val) end)
 
 --==================================================
--- SETTINGS & SERVER TAB
+-- SETTINGS TAB
 --==================================================
 
 local SettingsLayout = Instance.new("UIListLayout")
 SettingsLayout.Padding = UDim.new(0, 8)
 SettingsLayout.Parent = SettingsTab
-
--- Theme selector
-local ThemeLabel = Instance.new("TextLabel")
-ThemeLabel.Size = UDim2.new(1, -8, 0, 20)
-ThemeLabel.BackgroundTransparency = 1
-ThemeLabel.Text = "Theme"
-ThemeLabel.TextColor3 = GetTheme().TextDim
-ThemeLabel.TextSize = 11
-ThemeLabel.Font = Enum.Font.GothamBold
-ThemeLabel.TextXAlignment = Enum.TextXAlignment.Left
-ThemeLabel.Parent = SettingsTab
 
 local ThemeBtns = {}
 for ThemeName, _ in pairs(Themes) do
@@ -1436,214 +1213,14 @@ for ThemeName, _ in pairs(Themes) do
 	ThemeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 	ThemeBtn.TextSize = 12
 	ThemeBtn.Font = Enum.Font.GothamMedium
-	ThemeBtn.AutoButtonColor = false
 	ThemeBtn.Parent = SettingsTab
 	Instance.new("UICorner", ThemeBtn).CornerRadius = UDim.new(0, 10)
 	ThemeBtns[ThemeName] = ThemeBtn
 
-	ThemeBtn.MouseEnter:Connect(function()
-		if Settings.CurrentTheme ~= ThemeName then
-			local T = GetTheme()
-			TweenService:Create(ThemeBtn, TweenInfo.new(0.15), {BackgroundColor3 = T.CardHover}):Play()
-		end
-	end)
-	ThemeBtn.MouseLeave:Connect(function()
-		if Settings.CurrentTheme ~= ThemeName then
-			local T = GetTheme()
-			TweenService:Create(ThemeBtn, TweenInfo.new(0.15), {BackgroundColor3 = T.CardBg}):Play()
-		end
-	end)
-
 	ThemeBtn.MouseButton1Click:Connect(function()
-		for name, btn in pairs(ThemeBtns) do
-			local T = Themes[name]
-			if name == ThemeName then
-				TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = T.Accent}):Play()
-			else
-				TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = T.CardBg}):Play()
-			end
-		end
 		ApplyTheme(ThemeName)
 	end)
 end
-
--- Egg Spawn Log section
-local SpawnLogLabel = Instance.new("TextLabel")
-SpawnLogLabel.Size = UDim2.new(1, -8, 0, 20)
-SpawnLogLabel.BackgroundTransparency = 1
-SpawnLogLabel.Text = "Egg Spawn Log"
-SpawnLogLabel.TextColor3 = GetTheme().TextDim
-SpawnLogLabel.TextSize = 11
-SpawnLogLabel.Font = Enum.Font.GothamBold
-SpawnLogLabel.TextXAlignment = Enum.TextXAlignment.Left
-SpawnLogLabel.Parent = SettingsTab
-
-local SpawnLogCard = Instance.new("Frame")
-SpawnLogCard.Size = UDim2.new(1, -8, 0, 220)
-SpawnLogCard.BackgroundColor3 = GetTheme().CardBg
-SpawnLogCard.BorderSizePixel = 0
-SpawnLogCard.Parent = SettingsTab
-Instance.new("UICorner", SpawnLogCard).CornerRadius = UDim.new(0, 10)
-
-local SpawnLogScroll = Instance.new("ScrollingFrame")
-SpawnLogScroll.Size = UDim2.new(1, -16, 1, -16)
-SpawnLogScroll.Position = UDim2.fromOffset(8, 8)
-SpawnLogScroll.BackgroundTransparency = 1
-SpawnLogScroll.BorderSizePixel = 0
-SpawnLogScroll.ScrollBarThickness = 3
-SpawnLogScroll.ScrollBarImageColor3 = Color3.fromRGB(80, 90, 110)
-SpawnLogScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-SpawnLogScroll.Parent = SpawnLogCard
-
-local SpawnLogLayout = Instance.new("UIListLayout")
-SpawnLogLayout.Padding = UDim.new(0, 4)
-SpawnLogLayout.Parent = SpawnLogScroll
-
-local SpawnLogEmpty = Instance.new("TextLabel")
-SpawnLogEmpty.Size = UDim2.new(1, 0, 0, 30)
-SpawnLogEmpty.BackgroundTransparency = 1
-SpawnLogEmpty.Text = "No eggs spawned yet..."
-SpawnLogEmpty.TextColor3 = GetTheme().TextDim
-SpawnLogEmpty.TextSize = 11
-SpawnLogEmpty.Font = Enum.Font.GothamMedium
-SpawnLogEmpty.Parent = SpawnLogScroll
-
-local SpawnLogFrames = {}
-
-local function RefreshSpawnLog()
-	for _, frame in ipairs(SpawnLogFrames) do
-		frame:Destroy()
-	end
-	SpawnLogFrames = {}
-	if #EggSpawnLog == 0 then
-		SpawnLogEmpty.Visible = true
-		return
-	end
-	SpawnLogEmpty.Visible = false
-	local Theme = GetTheme()
-	for i, entry in ipairs(EggSpawnLog) do
-		local Row = Instance.new("Frame")
-		Row.Size = UDim2.new(1, 0, 0, 36)
-		Row.BackgroundColor3 = i % 2 == 0 and Theme.CardHover or Theme.CardBg
-		Row.BorderSizePixel = 0
-		Row.Parent = SpawnLogScroll
-		Instance.new("UICorner", Row).CornerRadius = UDim.new(0, 8)
-
-		-- Egg image
-		local Img = Instance.new("ImageLabel")
-		Img.Size = UDim2.fromOffset(24, 24)
-		Img.Position = UDim2.fromOffset(4, 6)
-		Img.BackgroundTransparency = 1
-		Img.Parent = Row
-		local imgSrc = EggImages[entry.name] or ""
-		if imgSrc ~= "" then
-			Img.Image = imgSrc
-			Img.ScaleType = Enum.ScaleType.Fit
-		else
-			Img.BackgroundColor3 = RarityColors[entry.rarity] or Theme.Accent
-			Img.BackgroundTransparency = 0.3
-		end
-
-		-- Egg name + rarity
-		local NameLbl = Instance.new("TextLabel")
-		NameLbl.Size = UDim2.new(1, -90, 1, 0)
-		NameLbl.Position = UDim2.fromOffset(32, 0)
-		NameLbl.BackgroundTransparency = 1
-		NameLbl.Text = entry.name
-		NameLbl.TextColor3 = Theme.Text
-		NameLbl.TextSize = 11
-		NameLbl.Font = Enum.Font.GothamMedium
-		NameLbl.TextXAlignment = Enum.TextXAlignment.Left
-		NameLbl.Parent = Row
-
-		-- Rarity tag
-		local RarityLbl = Instance.new("TextLabel")
-		RarityLbl.Size = UDim2.fromOffset(60, 16)
-		RarityLbl.Position = UDim2.new(1, -110, 0, 10)
-		RarityLbl.BackgroundTransparency = 1
-		RarityLbl.Text = entry.rarity
-		RarityLbl.TextColor3 = RarityColors[entry.rarity] or Theme.Text
-		RarityLbl.TextSize = 9
-		RarityLbl.Font = Enum.Font.GothamBold
-		RarityLbl.Parent = Row
-
-		-- Time
-		local TimeStr = os.date("%H:%M:%S", entry.time)
-		local TimeLbl = Instance.new("TextLabel")
-		TimeLbl.Size = UDim2.fromOffset(50, 16)
-		TimeLbl.Position = UDim2.new(1, -48, 0, 10)
-		TimeLbl.BackgroundTransparency = 1
-		TimeLbl.Text = TimeStr
-		TimeLbl.TextColor3 = Theme.TextDim
-		TimeLbl.TextSize = 9
-		TimeLbl.Font = Enum.Font.GothamMedium
-		TimeLbl.TextXAlignment = Enum.TextXAlignment.Right
-		TimeLbl.Parent = Row
-
-		table.insert(SpawnLogFrames, Row)
-	end
-end
-
--- Server section header
-local ServerHeader = Instance.new("TextLabel")
-ServerHeader.Size = UDim2.new(1, -8, 0, 20)
-ServerHeader.BackgroundTransparency = 1
-ServerHeader.Text = "Server"
-ServerHeader.TextColor3 = GetTheme().TextDim
-ServerHeader.TextSize = 11
-ServerHeader.Font = Enum.Font.GothamBold
-ServerHeader.TextXAlignment = Enum.TextXAlignment.Left
-ServerHeader.Parent = SettingsTab
-
-CreateActionButton(SettingsTab, "Rejoin Current Server", Color3.fromRGB(200, 140, 0), RejoinCurrentServer)
-CreateActionButton(SettingsTab, "Server Hop (Low Players)", Color3.fromRGB(0, 160, 80), ServerHopLowPlayers)
-
---==================================================
--- PERFORMANCE TAB
---==================================================
-
-local PerfLayout = Instance.new("UIListLayout")
-PerfLayout.Padding = UDim.new(0, 8)
-PerfLayout.Parent = PerfTab
-
-local PerfHeader = Instance.new("TextLabel")
-PerfHeader.Size = UDim2.new(1, -8, 0, 24)
-PerfHeader.BackgroundTransparency = 1
-PerfHeader.Text = "Tune scanning and visual performance"
-PerfHeader.TextColor3 = GetTheme().TextDim
-PerfHeader.TextSize = 11
-PerfHeader.Font = Enum.Font.GothamMedium
-PerfHeader.TextXAlignment = Enum.TextXAlignment.Left
-PerfHeader.Parent = PerfTab
-
-CreateSlider(PerfTab, "Scan Interval (ms)", "ScanInterval", 100, 3000, function(val) end)
-CreateSlider(PerfTab, "ESP Max Distance", "ESPMaxDistance", 100, 2000, function(val)
-	for _, Info in pairs(EggESP) do
-		if Info.gui then Info.gui.MaxDistance = val end
-	end
-end)
-CreateSlider(PerfTab, "Notify Duration (s)", "NotifyDuration", 2, 10, function(val) end)
-CreateSlider(PerfTab, "Max Spawn Log Entries", "MaxSpawnLogEntries", 5, 50, function(val) end)
-
-CreateToggle(PerfTab, "Low Quality Mode", "LowQualityMode", function(val)
-	if val then
-		for _, Info in pairs(EggESP) do
-			if Info.gui then Info.gui.MaxDistance = 200 end
-		end
-	else
-		for _, Info in pairs(EggESP) do
-			if Info.gui then Info.gui.MaxDistance = Settings.ESPMaxDistance end
-		end
-	end
-end)
-
-CreateToggle(PerfTab, "Disable Particles", "DisableParticles", function(val)
-	for _, descendant in ipairs(workspace:GetDescendants()) do
-		if descendant:IsA("ParticleEmitter") then
-			descendant.Enabled = not val
-		end
-	end
-end)
 
 --==================================================
 -- WINDOW CONTROLS (MINIMIZE / CLOSE / DRAG)
@@ -1652,26 +1229,17 @@ end)
 local Minimized = false
 Minimize.MouseButton1Click:Connect(function()
 	Minimized = not Minimized
-	if Minimized then
-		TweenService:Create(Main, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.fromOffset(680, 52)}):Play()
-	else
-		TweenService:Create(Main, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.fromOffset(680, 500)}):Play()
-	end
+	TweenService:Create(Main, TweenInfo.new(0.3), {Size = Minimized and UDim2.fromOffset(680, 52) or UDim2.fromOffset(680, 500)}):Play()
 end)
 
 Close.MouseButton1Click:Connect(function()
 	GUI:Destroy()
 	NotifyGui:Destroy()
 	StopFly()
-	for Egg, _ in pairs(EggESP) do
-		RemoveESP(Egg)
-	end
+	for Egg, _ in pairs(EggESP) do RemoveESP(Egg) end
 end)
 
--- Dragging
-local Dragging = false
-local DragStart = nil
-local StartPos = nil
+local Dragging, DragStart, StartPos = false, nil, nil
 Topbar.InputBegan:Connect(function(Input)
 	if Input.UserInputType == Enum.UserInputType.MouseButton1 then
 		Dragging = true
@@ -1686,13 +1254,11 @@ UserInputService.InputChanged:Connect(function(Input)
 	end
 end)
 UserInputService.InputEnded:Connect(function(Input)
-	if Input.UserInputType == Enum.UserInputType.MouseButton1 then
-		Dragging = false
-	end
+	if Input.UserInputType == Enum.UserInputType.MouseButton1 then Dragging = false end
 end)
 
 --==================================================
--- FLY RENDER LOOP
+-- MAIN LOOPS
 --==================================================
 
 RunService.RenderStepped:Connect(function()
@@ -1700,7 +1266,6 @@ RunService.RenderStepped:Connect(function()
 	local Root = GetRoot()
 	if not Root then return end
 	if not FlyVelocity then StartFly() end
-	if not FlyVelocity then return end
 
 	local Camera = workspace.CurrentCamera
 	local Direction = Vector3.zero
@@ -1716,38 +1281,19 @@ RunService.RenderStepped:Connect(function()
 	FlyVelocity.Velocity = Direction * Settings.FlySpeed
 end)
 
-Player.CharacterAdded:Connect(function()
-	task.wait(1)
-	if Settings.FlyEnabled then StartFly() end
-end)
-
---==================================================
--- SCAN LOOP
---==================================================
-
 task.spawn(function()
 	while true do
-		if Settings.RadarEnabled then
-			ScanEggs()
-		end
+		ScanEggs()
 		UpdateStatus()
 		if NeedsTPListUpdate then
 			NeedsTPListUpdate = false
 			RefreshTPList()
 		end
-		if NeedsSpawnLogUpdate then
-			NeedsSpawnLogUpdate = false
-			RefreshSpawnLog()
-		end
-		local interval = Settings.ScanInterval / 1000
-		if Settings.LowQualityMode then interval = math.max(interval, 1) end
-		task.wait(interval)
+		task.wait((Settings.ScanInterval or 300) / 1000)
 	end
 end)
 
--- Initial scan
-ScanEggs()
 ApplyTheme(Settings.CurrentTheme)
 UpdateStatus()
 
-print("Ride A Pet Ultra Hub V9 Loaded (Modern UI + Performance Tab + Egg Spawn Log)")
+print("Ride A Pet Ultra Hub V9 Loaded Successfully!")
