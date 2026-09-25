@@ -120,6 +120,7 @@ local Settings = {
 	FlySpeed = 60,
 	CurrentTheme = "Midnight Blue",
 	AllowedEggs = {},
+	NotifyEggs = {},
 	NotifyEnabled = true
 }
 
@@ -128,6 +129,7 @@ local MaxColumns = 5
 
 for EggName, _ in pairs(Eggs) do
 	Settings.AllowedEggs[EggName] = true
+	Settings.NotifyEggs[EggName] = true
 end
 
 local function SaveSettings()
@@ -142,6 +144,8 @@ local function LoadSettings()
 				for k, v in pairs(Loaded) do
 					if k == "AllowedEggs" and type(v) == "table" then
 						for egg, val in pairs(v) do Settings.AllowedEggs[egg] = val end
+					elseif k == "NotifyEggs" and type(v) == "table" then
+						for egg, val in pairs(v) do Settings.NotifyEggs[egg] = val end
 					else
 						Settings[k] = v
 					end
@@ -157,6 +161,7 @@ local NeedsTPListUpdate = false
 local FilterButtons = {}
 local UI_Toggles = {}
 local UI_SliderFills = {}
+local AutoTPDebounce = false
 
 --==================================================
 -- AUTO RE-EXECUTE & SERVER HOP SYSTEM
@@ -259,6 +264,7 @@ local function GetUserPlot()
 				end
 			end
 			if Plot:GetAttribute("OwnerUserId") == Player.UserId then return Plot end
+			if Plot:GetAttribute("NestsOwnerLoaded") == Player.UserId then return Plot end
 		end
 	end
 	return nil
@@ -501,15 +507,50 @@ workspace.DescendantAdded:Connect(function(Object)
 		task.spawn(function()
 			CreateESP(Object)
 			local Data = Eggs[Object.Name]
-			if Data then
+			if Data and Settings.NotifyEggs[Object.Name] ~= false then
 				ShowNotification("🥚 " .. Object.Name .. " spawned!", Data.rarity .. " • Luck: " .. FormatNumber(Data.luck), RarityColors[Data.rarity])
 			end
 		end)
 	end
 end)
 workspace.DescendantRemoving:Connect(function(Object)
-	if EggESP[Object] then RemoveESP(Object) end
+	if EggESP[Object] then 
+		RemoveESP(Object)
+		-- Auto TP to base when an egg we were tracking disappears (was claimed)
+		if Settings.AutoTPToBase then
+			task.spawn(function()
+				task.wait(0.3)
+				local GridSpot = GetNextBaseplateSpot()
+				if GridSpot then
+					TeleportTo(GridSpot)
+				else
+					TeleportToBase()
+				end
+			end)
+		end
+	end
 end)
+
+-- Also listen for EggArrivalClaim (server confirms egg arrived at plot)
+if GameRemotes then
+	local ArrivalClaim = GameRemotes:FindFirstChild("EggArrivalClaim")
+	if ArrivalClaim then
+		ArrivalClaim.OnClientEvent:Connect(function()
+			if Settings.AutoTPToBase then
+				task.spawn(function()
+					task.wait(0.2)
+					local GridSpot = GetNextBaseplateSpot()
+					if GridSpot then
+						TeleportTo(GridSpot)
+					else
+						TeleportToBase()
+					end
+				end)
+			end
+			end)
+		end
+	end
+end
 
 --==================================================
 -- UI DESIGN & THEME ENGINE
@@ -911,12 +952,12 @@ end
 --==================================================
 
 local BulkFrame = Instance.new("Frame")
-BulkFrame.Size = UDim2.new(1, -8, 0, 35)
+BulkFrame.Size = UDim2.new(1, -8, 0, 72)
 BulkFrame.BackgroundTransparency = 1
 BulkFrame.Parent = FilterTab
 
 local SelectAllBtn = Instance.new("TextButton")
-SelectAllBtn.Size = UDim2.new(0.5, -5, 1, 0)
+SelectAllBtn.Size = UDim2.new(0.5, -5, 0, 32)
 SelectAllBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 80)
 SelectAllBtn.Text = "✓ ENABLE ALL"
 SelectAllBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -928,7 +969,7 @@ CreateClickBounce(SelectAllBtn)
 
 local DeselectAllBtn = Instance.new("TextButton")
 DeselectAllBtn.Position = UDim2.new(0.5, 5, 0, 0)
-DeselectAllBtn.Size = UDim2.new(0.5, -5, 1, 0)
+DeselectAllBtn.Size = UDim2.new(0.5, -5, 0, 32)
 DeselectAllBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 60)
 DeselectAllBtn.Text = "✕ DISABLE ALL"
 DeselectAllBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -938,9 +979,43 @@ DeselectAllBtn.Parent = BulkFrame
 Instance.new("UICorner", DeselectAllBtn).CornerRadius = UDim.new(0, 8)
 CreateClickBounce(DeselectAllBtn)
 
+local NotifyAllBtn = Instance.new("TextButton")
+NotifyAllBtn.Size = UDim2.new(0.5, -5, 0, 32)
+NotifyAllBtn.Position = UDim2.fromOffset(0, 38)
+NotifyAllBtn.BackgroundColor3 = Color3.fromRGB(0, 130, 200)
+NotifyAllBtn.Text = "🔔 NOTIFY ALL"
+NotifyAllBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+NotifyAllBtn.TextSize = 11
+NotifyAllBtn.Font = Enum.Font.GothamBold
+NotifyAllBtn.Parent = BulkFrame
+Instance.new("UICorner", NotifyAllBtn).CornerRadius = UDim.new(0, 8)
+CreateClickBounce(NotifyAllBtn)
+
+local MuteAllBtn = Instance.new("TextButton")
+MuteAllBtn.Position = UDim2.new(0.5, 5, 0, 38)
+MuteAllBtn.Size = UDim2.new(0.5, -5, 0, 32)
+MuteAllBtn.BackgroundColor3 = Color3.fromRGB(120, 120, 130)
+MuteAllBtn.Text = "🔕 MUTE ALL"
+MuteAllBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+MuteAllBtn.TextSize = 11
+MuteAllBtn.Font = Enum.Font.GothamBold
+MuteAllBtn.Parent = BulkFrame
+Instance.new("UICorner", MuteAllBtn).CornerRadius = UDim.new(0, 8)
+CreateClickBounce(MuteAllBtn)
+
+local HelpLabel = Instance.new("TextLabel")
+HelpLabel.Size = UDim2.new(1, -8, 0, 16)
+HelpLabel.Position = UDim2.fromOffset(0, 76)
+HelpLabel.BackgroundTransparency = 1
+HelpLabel.Text = "Left-click: Toggle Claim | Right-click: Toggle 🔔 Notify"
+HelpLabel.TextColor3 = Color3.fromRGB(150, 160, 180)
+HelpLabel.TextSize = 10
+HelpLabel.Font = Enum.Font.GothamMedium
+HelpLabel.Parent = FilterTab
+
 local FilterScroll = Instance.new("ScrollingFrame")
-FilterScroll.Position = UDim2.fromOffset(0, 45)
-FilterScroll.Size = UDim2.new(1, 0, 1, -45)
+FilterScroll.Position = UDim2.fromOffset(0, 95)
+FilterScroll.Size = UDim2.new(1, 0, 1, -95)
 FilterScroll.BackgroundTransparency = 1
 FilterScroll.BorderSizePixel = 0
 FilterScroll.ScrollBarThickness = 5
@@ -958,9 +1033,10 @@ table.sort(SortedFilterList, function(a, b) return a.luck < b.luck end)
 
 local function RefreshFilterButton(Btn, Name, Rarity)
 	local Active = Settings.AllowedEggs[Name]
+	local NotifyOn = Settings.NotifyEggs[Name] ~= false
 	local CurTheme = Themes[Settings.CurrentTheme] or Themes["Midnight Blue"]
 	TweenService:Create(Btn, TweenInfo.new(0.3), {BackgroundColor3 = Active and CurTheme.Accent or Color3.fromRGB(22, 26, 40)}):Play()
-	Btn.Text = "  " .. (Active and "✓ " or "✕ ") .. Name .. " [" .. Rarity .. "]"
+	Btn.Text = "  " .. (Active and "✓ " or "✕ ") .. (NotifyOn and "🔔 " or "🔕 ") .. Name .. " [" .. Rarity .. "]"
 end
 
 for i, EggData in ipairs(SortedFilterList) do
@@ -983,6 +1059,12 @@ for i, EggData in ipairs(SortedFilterList) do
 		RefreshFilterButton(Btn, Name, EggData.rarity)
 		SaveSettings()
 	end)
+
+	Btn.MouseButton2Click:Connect(function()
+		Settings.NotifyEggs[Name] = (Settings.NotifyEggs[Name] == false) and true or false
+		RefreshFilterButton(Btn, Name, EggData.rarity)
+		SaveSettings()
+	end)
 end
 FilterScroll.CanvasSize = UDim2.new(0, 0, 0, #SortedFilterList * 42)
 
@@ -997,6 +1079,22 @@ end)
 DeselectAllBtn.MouseButton1Click:Connect(function()
 	for EggName, _ in pairs(Eggs) do
 		Settings.AllowedEggs[EggName] = false
+		if FilterButtons[EggName] then RefreshFilterButton(FilterButtons[EggName], EggName, Eggs[EggName].rarity) end
+	end
+	SaveSettings()
+end)
+
+NotifyAllBtn.MouseButton1Click:Connect(function()
+	for EggName, _ in pairs(Eggs) do
+		Settings.NotifyEggs[EggName] = true
+		if FilterButtons[EggName] then RefreshFilterButton(FilterButtons[EggName], EggName, Eggs[EggName].rarity) end
+	end
+	SaveSettings()
+end)
+
+MuteAllBtn.MouseButton1Click:Connect(function()
+	for EggName, _ in pairs(Eggs) do
+		Settings.NotifyEggs[EggName] = false
 		if FilterButtons[EggName] then RefreshFilterButton(FilterButtons[EggName], EggName, Eggs[EggName].rarity) end
 	end
 	SaveSettings()
@@ -1234,6 +1332,21 @@ RunService.RenderStepped:Connect(function()
 	for Egg, Info in pairs(EggESP) do
 		if not Egg.Parent or not IsEgg(Egg) then
 			RemoveESP(Egg)
+			-- Auto TP to base when a tracked egg disappears (was claimed/picked up)
+			if Settings.AutoTPToBase and not AutoTPDebounce then
+				AutoTPDebounce = true
+				task.spawn(function()
+					task.wait(0.3)
+					local GridSpot = GetNextBaseplateSpot()
+					if GridSpot then
+						TeleportTo(GridSpot)
+					else
+						TeleportToBase()
+					end
+					task.wait(1.5)
+					AutoTPDebounce = false
+				end)
+			end
 		else
 			Info.gui.Enabled = Settings.ESPEnabled
 			local Position = GetObjectPosition(Egg)
