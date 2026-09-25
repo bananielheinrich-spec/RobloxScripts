@@ -241,6 +241,10 @@ local function PressKey2()
 	VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Two, false, game)
 end
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local GameRemotes = ReplicatedStorage:FindFirstChild("Remotes")
+GameRemotes = GameRemotes and GameRemotes:FindFirstChild("Game") or nil
+
 local function GetUserPlot()
 	local PlotsFolder = workspace:FindFirstChild("Plots")
 	if PlotsFolder then
@@ -248,8 +252,13 @@ local function GetUserPlot()
 			local DataFolder = Plot:FindFirstChild("Data")
 			if DataFolder then
 				local OwnerValue = DataFolder:FindFirstChild("Owner")
-				if OwnerValue and OwnerValue.Value == Player then return Plot end
+				if OwnerValue then
+					local owner = OwnerValue.Value
+					if owner == Player then return Plot end
+					if type(owner) == "number" and owner == Player.UserId then return Plot end
+				end
 			end
+			if Plot:GetAttribute("OwnerUserId") == Player.UserId then return Plot end
 		end
 	end
 	return nil
@@ -311,12 +320,24 @@ local function RearrangePlotEggs()
 end
 
 local function TeleportToBase()
+	-- Try the TeleportToPlot RemoteEvent (server-side teleport)
+	if GameRemotes then
+		local TPEvent = GameRemotes:FindFirstChild("TeleportToPlot")
+		if TPEvent then pcall(function() TPEvent:FireServer() end) end
+	end
+	-- Also do client-side teleport for immediate visual feedback
 	local Spot = GetNextBaseplateSpot()
 	if Spot then
 		TeleportTo(Spot)
 	else
-		local SpawnLocation = workspace:FindFirstChildWhichIsA("SpawnLocation", true)
-		if SpawnLocation then TeleportTo(SpawnLocation.Position) end
+		local Plot = GetUserPlot()
+		if Plot then
+			local Baseplate = Plot:FindFirstChild("Baseplate") or Plot.PrimaryPart
+			if Baseplate then TeleportTo(Baseplate.Position + Vector3.new(0, 5, 0)) end
+		else
+			local SpawnLocation = workspace:FindFirstChildWhichIsA("SpawnLocation", true)
+			if SpawnLocation then TeleportTo(SpawnLocation.Position) end
+		end
 	end
 end
 
@@ -1104,8 +1125,23 @@ end)
 
 local function ClaimEgg(Egg)
 	if not Egg or not Egg.Parent then return end
+	-- Use EggPickup RemoteEvent instead of fireproximityprompt (executor-only)
+	if GameRemotes then
+		local EggPickup = GameRemotes:FindFirstChild("EggPickup")
+		if EggPickup then
+			pcall(function() EggPickup:FireServer(Egg) end)
+			return
+		end
+	end
+	-- Fallback: try proximity prompt key simulation
 	local Prompt = Egg:FindFirstChildWhichIsA("ProximityPrompt", true)
-	if Prompt then fireproximityprompt(Prompt) end
+	if Prompt then
+		Prompt.Enabled = true
+		task.wait(0.1)
+		VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+		task.wait((Prompt.HoldDuration or 0) + 0.15)
+		VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+	end
 end
 
 task.spawn(function()
