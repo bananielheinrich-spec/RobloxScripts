@@ -16,7 +16,7 @@ local Player = Players.LocalPlayer
 
 -- Falls du das Skript über einen GitHub/Raw Loadstring lädst, trage deine URL hier ein:
 local ScriptLoadstring = [[
-	loadstring(game:HttpGet("https://raw.githubusercontent.com/bananielheinrich-spec/Roblox-Scripts/refs/heads/main/main.lua?token=GHSAT0AAAAAAEKDTUSU6KLFPPJGXNQDSEWE2VVJQ7Q"))()
+	loadstring(game:HttpGet("https://raw.githubusercontent.com/bananielheinrich-spec/RobloxScripts/refs/heads/main/main.lua"))()
 ]]
 
 --==================================================
