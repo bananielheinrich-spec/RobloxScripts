@@ -547,8 +547,7 @@ if GameRemotes then
 					end
 				end)
 			end
-			end)
-		end
+		end)
 	end
 end
 
