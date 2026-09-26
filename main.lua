@@ -71,6 +71,7 @@ local Eggs = {
 	["Leaf Egg"] = {luck = 200, rarity = "Rare"},
 	["Mushroom Egg"] = {luck = 500, rarity = "Epic"},
 	["Flower Egg"] = {luck = 750, rarity = "Epic"},
+	["Bloom Egg"] = {luck = 800, rarity = "Epic"}, -- Neu hinzugefügt
 	["Slime Egg"] = {luck = 1000, rarity = "Epic"},
 	["Ice Egg"] = {luck = 3000, rarity = "Epic"},
 	["Asteroid Egg"] = {luck = 5000, rarity = "Epic"},
@@ -90,6 +91,8 @@ local Eggs = {
 	["Aurora Egg"] = {luck = 300000000, rarity = "Divine"},
 	["Galaxy Egg"] = {luck = 1500000000, rarity = "Divine"},
 	["Solaris Egg"] = {luck = 5000000000, rarity = "Divine"},
+	["Tidal Egg"] = {luck = 10000000000, rarity = "Divine"}, -- Neu hinzugefügt
+	["Volcanic Egg"] = {luck = 50000000000, rarity = "Etheral"}, -- Neu hinzugefügt
 	["Blackhole Egg"] = {luck = 100000000000, rarity = "Etheral"},
 	["Cherub Egg"] = {luck = 1000000000000, rarity = "Etheral"},
 }
